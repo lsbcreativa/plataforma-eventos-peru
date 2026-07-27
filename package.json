@@ -1,0 +1,28 @@
+{
+  "name": "plataforma-eventos-peru",
+  "version": "1.0.0",
+  "description": "API REST para la Plataforma de Eventos e Inscripciones del Peru - Backend II (Coderhouse)",
+  "main": "src/server.js",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": [
+    "express",
+    "api-rest",
+    "eventos",
+    "peru",
+    "backend"
+  ],
+  "author": "Andres Botta",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.5"
+  }
+}
