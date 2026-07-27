@@ -28,7 +28,7 @@ En esta primera pre-entrega se construye únicamente la **estructura base por ca
 ## Instalación
 
 ```bash
-git clone https://github.com/usuario/plataforma-eventos-peru.git
+git clone https://github.com/lsbcreativa/plataforma-eventos-peru.git
 cd plataforma-eventos-peru
 npm install
 ```
