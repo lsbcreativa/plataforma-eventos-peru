@@ -156,6 +156,18 @@ Todas las rutas cuelgan del prefijo `/api`.
 }
 ```
 
+## Evidencia de funcionamiento
+
+Capturas del servidor respondiendo en local sobre `http://localhost:8080`.
+
+**GET /api/health**
+
+![Respuesta del endpoint de health](docs/health.png)
+
+**GET /api/events**
+
+![Respuesta del endpoint de eventos](docs/events.png)
+
 ## Próximos pasos
 
 - Registro y login con hasheo de contraseñas (bcrypt).
