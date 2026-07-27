@@ -18,7 +18,7 @@
     "peru",
     "backend"
   ],
-  "author": "Andres Botta",
+  "author": "Daniel Andres Sanchez Botta",
   "license": "ISC",
   "dependencies": {
     "dotenv": "^16.4.7",

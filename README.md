@@ -166,4 +166,4 @@ Todas las rutas cuelgan del prefijo `/api`.
 
 ## Autor
 
-Andrés Botta — Backend II, Coderhouse.
+**Daniel Andrés Sánchez Botta** — Backend II, Coderhouse.
