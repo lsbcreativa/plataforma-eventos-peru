@@ -3,7 +3,7 @@
  * En esta etapa persiste en memoria. En la siguiente entrega se reemplaza
  * la fuente de datos por MongoDB manteniendo esta misma interfaz.
  */
-class EventsDao {
+export class EventsDao {
   constructor() {
     this.events = [];
   }

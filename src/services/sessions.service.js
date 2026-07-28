@@ -4,7 +4,7 @@ import { usersRepository } from '../repositories/users.repository.js';
  * Servicio de sesiones. La logica de registro, login y JWT se implementa
  * en la proxima entrega; aqui queda definida la capa y sus dependencias.
  */
-class SessionsService {
+export class SessionsService {
   constructor(repository) {
     this.repository = repository;
   }

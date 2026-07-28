@@ -1,6 +1,6 @@
 import { eventsDao } from '../dao/events.dao.js';
 
-class EventsRepository {
+export class EventsRepository {
   constructor(dao) {
     this.dao = dao;
   }

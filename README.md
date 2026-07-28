@@ -24,6 +24,8 @@ En esta primera pre-entrega se construye únicamente la **estructura base por ca
 | Módulos ESM | Sistema de módulos (`import` / `export`) |
 | dotenv | Manejo de variables de entorno |
 | Mongoose | ODM para MongoDB (modelos base) |
+| node:test | Runner de pruebas nativo de Node (sin dependencias extra) |
+| Supertest | Pruebas de integración sobre los endpoints HTTP |
 
 ## Instalación
 
@@ -62,6 +64,27 @@ npm start
 
 El servidor queda disponible en `http://localhost:8080` (o el puerto definido en `PORT`).
 
+## Tests
+
+El proyecto incluye una suite de pruebas automatizadas que se ejecuta con el runner nativo de Node, sin necesidad de tener MongoDB levantado.
+
+```bash
+# ejecutar toda la suite
+npm test
+
+# ejecutar en modo watch mientras desarrollás
+npm run test:watch
+```
+
+Las pruebas se dividen en dos grupos:
+
+| Tipo | Ubicación | Qué valida |
+|---|---|---|
+| Integración | `test/integration/` | Los endpoints HTTP: códigos de estado, formato de las respuestas y manejo de errores |
+| Unitarias | `test/unit/` | La lógica de negocio de cada capa de forma aislada (DAO, servicios y utilidades) |
+
+Las pruebas unitarias aprovechan la inyección de dependencias de la arquitectura: los servicios reciben repositorios simulados, de modo que la lógica se valida sin tocar la fuente de datos real.
+
 ## Estructura de carpetas
 
 ```
@@ -99,6 +122,17 @@ plataforma-eventos-peru/
 │   └── utils/
 │       ├── logger.js
 │       └── response.util.js
+├── test/
+│   ├── integration/                    # pruebas sobre los endpoints HTTP
+│   │   ├── health.test.js
+│   │   ├── events.test.js
+│   │   ├── sessions.test.js
+│   │   └── errores.test.js
+│   └── unit/                           # pruebas de la lógica por capa
+│       ├── events.dao.test.js
+│       ├── events.service.test.js
+│       └── response.util.test.js
+├── docs/                               # capturas usadas en este README
 ├── .env.example
 ├── .gitignore
 ├── package.json

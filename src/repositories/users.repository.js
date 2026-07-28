@@ -1,6 +1,6 @@
 import { usersDao } from '../dao/users.dao.js';
 
-class UsersRepository {
+export class UsersRepository {
   constructor(dao) {
     this.dao = dao;
   }

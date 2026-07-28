@@ -1,6 +1,6 @@
 import { eventsRepository } from '../repositories/events.repository.js';
 
-class EventsService {
+export class EventsService {
   constructor(repository) {
     this.repository = repository;
   }
