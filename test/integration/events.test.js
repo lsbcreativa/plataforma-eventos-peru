@@ -32,6 +32,6 @@ describe('GET /api/events/:eid', () => {
 
     assert.equal(response.status, 404);
     assert.equal(response.body.status, 'error');
-    assert.equal(response.body.error, 'Evento no encontrado');
+    assert.equal(response.body.message, 'Evento no encontrado');
   });
 });

@@ -1,10 +1,20 @@
+import { sessionsService } from '../services/sessions.service.js';
+import { successResponse } from '../utils/response.util.js';
+
 const pendingImplementation = (res, accion) =>
   res.status(501).json({
     status: 'error',
-    error: `${accion} disponible en la proxima entrega (autenticacion con JWT y Passport)`
+    message: `${accion} disponible en la proxima entrega (autenticacion con JWT y Passport)`
   });
 
-export const register = (req, res) => pendingImplementation(res, 'Registro de usuarios');
+export const register = async (req, res, next) => {
+  try {
+    const user = await sessionsService.register(req.body);
+    successResponse(res, user, 201);
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const login = (req, res) => pendingImplementation(res, 'Inicio de sesion');
 

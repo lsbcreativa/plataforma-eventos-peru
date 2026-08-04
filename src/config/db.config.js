@@ -4,7 +4,7 @@ import { logger } from '../utils/logger.js';
 
 export const connectDB = async () => {
   if (!config.mongoUrl) {
-    logger.warn('MONGO_URL no definida. El servidor inicia sin conexion a la base de datos.');
+    logger.error('MONGO_URL no esta definida. El registro de usuarios no va a funcionar.');
     return null;
   }
 
@@ -14,6 +14,7 @@ export const connectDB = async () => {
     return connection;
   } catch (error) {
     logger.error(`No se pudo conectar a MongoDB: ${error.message}`);
+    logger.error('Revisa el valor de MONGO_URL en tu archivo .env');
     return null;
   }
 };

@@ -1,29 +1,29 @@
+import { User } from '../models/User.js';
+
 /**
- * DAO de usuarios.
- * En esta etapa persiste en memoria. En la siguiente entrega se reemplaza
- * la fuente de datos por MongoDB manteniendo esta misma interfaz.
+ * DAO de usuarios sobre MongoDB.
+ * Recibe el modelo por constructor para poder sustituirlo en las pruebas.
  */
 export class UsersDao {
-  constructor() {
-    this.users = [];
+  constructor(model = User) {
+    this.model = model;
   }
 
   async getAll() {
-    return this.users;
+    return this.model.find().lean();
   }
 
   async getByEmail(email) {
-    return this.users.find((user) => user.email === email) || null;
+    return this.model.findOne({ email }).lean();
   }
 
   async getById(id) {
-    return this.users.find((user) => user.id === id) || null;
+    return this.model.findById(id).lean();
   }
 
   async create(data) {
-    const user = { id: String(this.users.length + 1), ...data };
-    this.users.push(user);
-    return user;
+    const created = await this.model.create(data);
+    return created.toObject();
   }
 }
 

@@ -36,13 +36,13 @@ describe('successResponse', () => {
 });
 
 describe('errorResponse', () => {
-  it('responde 500 por defecto con el formato { status, error }', () => {
+  it('responde 500 por defecto con el formato { status, message }', () => {
     const res = crearRespuestaFalsa();
 
     errorResponse(res, 'Fallo inesperado');
 
     assert.equal(res.statusCode, 500);
-    assert.deepEqual(res.body, { status: 'error', error: 'Fallo inesperado' });
+    assert.deepEqual(res.body, { status: 'error', message: 'Fallo inesperado' });
   });
 
   it('permite indicar otro codigo de estado', () => {
@@ -51,6 +51,6 @@ describe('errorResponse', () => {
     errorResponse(res, 'No encontrado', 404);
 
     assert.equal(res.statusCode, 404);
-    assert.deepEqual(res.body, { status: 'error', error: 'No encontrado' });
+    assert.deepEqual(res.body, { status: 'error', message: 'No encontrado' });
   });
 });

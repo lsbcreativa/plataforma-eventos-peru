@@ -9,14 +9,14 @@ describe('Manejo centralizado de errores', () => {
 
     assert.equal(response.status, 404);
     assert.equal(response.body.status, 'error');
-    assert.match(response.body.error, /no existe en esta API/);
+    assert.match(response.body.message, /no existe en esta API/);
   });
 
   it('incluye el metodo y la ruta solicitada en el mensaje', async () => {
     const response = await request(app).post('/api/otra');
 
-    assert.match(response.body.error, /POST/);
-    assert.match(response.body.error, /\/api\/otra/);
+    assert.match(response.body.message, /POST/);
+    assert.match(response.body.message, /\/api\/otra/);
   });
 
   it('responde 400 cuando el body JSON esta malformado', async () => {
@@ -31,11 +31,12 @@ describe('Manejo centralizado de errores', () => {
 });
 
 describe('Configuracion de Express', () => {
-  it('parsea el body en formato JSON', async () => {
+  it('parsea el body en formato JSON y el servicio lee sus campos', async () => {
     const response = await request(app)
       .post('/api/sessions/register')
-      .send({ first_name: 'Daniel', dni: '12345678' });
+      .send({ first_name: 'Daniel', last_name: 'Sánchez' });
 
-    assert.equal(response.status, 501);
+    assert.equal(response.status, 400);
+    assert.match(response.body.message, /email, password/);
   });
 });
