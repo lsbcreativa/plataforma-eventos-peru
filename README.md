@@ -352,7 +352,21 @@ La suite de tests verifica los tres puntos, incluida una consulta directa a la b
 
 ## Evidencia de funcionamiento
 
-Capturas del servidor respondiendo en local sobre `http://localhost:8080`.
+Capturas del servidor respondiendo en local sobre `http://localhost:8080`, con la base alojada en MongoDB Atlas.
+
+### Registro de usuarios
+
+Registro exitoso y rechazo del email duplicado. En la petición viaja `"password":"Secreta123"`, y la respuesta devuelve únicamente `id`, `first_name`, `last_name`, `email` y `role`:
+
+![Respuesta del endpoint de registro](docs/register-response.png)
+
+### Contraseñas almacenadas
+
+Colección `users` en MongoDB Atlas. El campo `password` guarda un hash de bcrypt (`$2b$10$...`), nunca el texto original:
+
+![Usuarios en MongoDB con la contraseña hasheada](docs/mongodb-password-hasheada.png)
+
+### Endpoints base
 
 **GET /api/health**
 
