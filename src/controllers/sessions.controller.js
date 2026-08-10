@@ -1,11 +1,15 @@
 import { sessionsService } from '../services/sessions.service.js';
 import { successResponse } from '../utils/response.util.js';
+import { COOKIE_NAME } from '../middlewares/auth.middleware.js';
+import { config } from '../config/env.config.js';
 
-const pendingImplementation = (res, accion) =>
-  res.status(501).json({
-    status: 'error',
-    message: `${accion} disponible en la proxima entrega (autenticacion con JWT y Passport)`
-  });
+const COOKIE_MAX_AGE = 3600000;
+
+const cookieOptions = {
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: config.isProduction
+};
 
 export const register = async (req, res, next) => {
   try {
@@ -16,8 +20,23 @@ export const register = async (req, res, next) => {
   }
 };
 
-export const login = (req, res) => pendingImplementation(res, 'Inicio de sesion');
+export const login = async (req, res, next) => {
+  try {
+    const token = await sessionsService.login(req.body);
 
-export const current = (req, res) => pendingImplementation(res, 'Usuario autenticado');
+    res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: COOKIE_MAX_AGE });
+    res.status(200).json({ status: 'success', message: 'Login correcto' });
+  } catch (error) {
+    next(error);
+  }
+};
 
-export const logout = (req, res) => pendingImplementation(res, 'Cierre de sesion');
+export const current = (req, res) => {
+  const { id, email, role } = req.user;
+  successResponse(res, { id, email, role });
+};
+
+export const logout = (req, res) => {
+  res.clearCookie(COOKIE_NAME, cookieOptions);
+  res.status(200).json({ status: 'success', message: 'Sesión cerrada' });
+};

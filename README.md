@@ -19,7 +19,8 @@ La plataforma permitirá:
 |---|---|---|
 | Pre-entrega 1 | Estructura base por capas, servidor Express y variables de entorno | Completada |
 | Pre-entrega 2 | Registro seguro de usuarios con validaciones, bcrypt y persistencia en MongoDB | Completada |
-| Próximas | Login, JWT, cookies, `current`, Passport, roles y autorización | Pendiente |
+| Pre-entrega 3 | Login, JWT en cookie `HttpOnly`, ruta protegida `current` y logout | Completada |
+| Próximas | Passport, roles y autorización, gestión de eventos e inscripciones | Pendiente |
 
 ## Tecnologías
 
@@ -31,6 +32,8 @@ La plataforma permitirá:
 | dotenv | Manejo de variables de entorno |
 | MongoDB + Mongoose | Base de datos y ODM |
 | bcrypt | Hasheo de contraseñas |
+| jsonwebtoken | Firma y verificación de los JWT |
+| cookie-parser | Lectura de la cookie de autenticación |
 | node:test | Runner de pruebas nativo de Node (sin dependencias extra) |
 | Supertest | Pruebas de integración sobre los endpoints HTTP |
 | mongodb-memory-server | MongoDB efímero para correr los tests sin base externa |
@@ -57,6 +60,7 @@ cp .env.example .env
 | `NODE_ENV` | Entorno de ejecución | `development` |
 | `MONGO_URL` | Cadena de conexión a MongoDB | `mongodb://localhost:27017/eventos_peru` |
 | `JWT_SECRET` | Clave secreta para firmar los tokens JWT | `mi_clave_secreta` |
+| `JWT_EXPIRES_IN` | Tiempo de validez del token | `1h` |
 
 `MONGO_URL` acepta tanto una instancia local como MongoDB Atlas:
 
@@ -135,12 +139,14 @@ plataforma-eventos-peru/
 │   │   ├── User.js
 │   │   └── Event.js
 │   ├── middlewares/
+│   │   ├── auth.middleware.js          # verifica el JWT de la cookie
 │   │   ├── notFound.middleware.js
 │   │   └── errorHandler.middleware.js
 │   └── utils/
 │       ├── logger.js
 │       ├── response.util.js
 │       ├── hash.js                     # bcrypt reutilizable
+│       ├── jwt.js                      # firma y verificación de JWT
 │       ├── validators.js               # validaciones y normalización de email
 │       ├── user.mapper.js              # arma el usuario público (sin password)
 │       └── appError.js                 # error con código HTTP asociado
@@ -148,14 +154,15 @@ plataforma-eventos-peru/
 │   ├── integration/                    # pruebas sobre los endpoints HTTP
 │   │   ├── health.test.js
 │   │   ├── events.test.js
-│   │   ├── sessions.test.js
 │   │   ├── register.test.js            # registro contra un MongoDB real
+│   │   ├── auth.test.js                # login, current y logout
 │   │   └── errores.test.js
 │   └── unit/                           # pruebas de la lógica por capa
 │       ├── events.dao.test.js
 │       ├── events.service.test.js
 │       ├── sessions.service.test.js
 │       ├── hash.test.js
+│       ├── jwt.test.js
 │       ├── validators.test.js
 │       └── response.util.test.js
 ├── docs/                               # capturas usadas en este README
@@ -189,15 +196,17 @@ POST /api/sessions/register
 
 Todas las rutas cuelgan del prefijo `/api`.
 
-| Método | Ruta | Descripción | Estado |
+| Método | Ruta | Descripción | Autenticación |
 |---|---|---|---|
-| GET | `/api/health` | Verifica que el servidor esté activo | Implementado |
-| GET | `/api/events` | Lista de eventos | Implementado |
-| GET | `/api/events/:eid` | Detalle de un evento | Implementado |
-| POST | `/api/sessions/register` | Registro de usuarios | Implementado |
-| POST | `/api/sessions/login` | Inicio de sesión | Próxima entrega |
-| GET | `/api/sessions/current` | Usuario autenticado | Próxima entrega |
-| POST | `/api/sessions/logout` | Cierre de sesión | Próxima entrega |
+| GET | `/api/health` | Verifica que el servidor esté activo | No |
+| GET | `/api/events` | Lista de eventos | No |
+| GET | `/api/events/:eid` | Detalle de un evento | No |
+| POST | `/api/sessions/register` | Registra un usuario nuevo | No |
+| POST | `/api/sessions/login` | Valida credenciales y entrega la cookie de sesión | No |
+| GET | `/api/sessions/current` | Devuelve el usuario autenticado | Cookie `currentUser` |
+| POST | `/api/sessions/logout` | Cierra la sesión y borra la cookie | No |
+
+Cada ruta está documentada con su request y su response más abajo: las de sesiones en [Registro de usuarios](#registro-de-usuarios) y [Autenticación con JWT y cookies](#autenticación-con-jwt-y-cookies), y las demás en [Ejemplos de respuesta](#ejemplos-de-respuesta).
 
 ## Registro de usuarios
 
@@ -309,6 +318,113 @@ password: '$2b$10$N9qo8uLOickgx2ZMRZoMy...'
 
 También se puede revisar desde MongoDB Compass abriendo la colección `users`.
 
+## Autenticación con JWT y cookies
+
+El login entrega un JWT dentro de una cookie `HttpOnly`. El navegador la envía sola en cada pedido, así que el token nunca queda expuesto a JavaScript del lado del cliente.
+
+### POST /api/sessions/login
+
+**Request**
+
+```json
+{ "email": "ana@mail.com", "password": "Secreta123" }
+```
+
+**Response 200** — además setea la cookie `currentUser`
+
+```json
+{ "status": "success", "message": "Login correcto" }
+```
+
+```
+Set-Cookie: currentUser=eyJhbGciOiJIUzI1NiIs...; Max-Age=3600; Path=/; HttpOnly; SameSite=Lax
+```
+
+**Response 401** — email inexistente o contraseña incorrecta
+
+```json
+{ "status": "error", "message": "Credenciales inválidas" }
+```
+
+El mensaje es **el mismo en los dos casos**, a propósito: si distinguiera "el email no existe" de "la contraseña es incorrecta", cualquiera podría averiguar qué emails están registrados probando uno por uno.
+
+**Response 400** — falta `email` o `password`
+
+```json
+{ "status": "error", "message": "Faltan campos obligatorios: password" }
+```
+
+### GET /api/sessions/current
+
+Requiere la cookie `currentUser`. No lleva body.
+
+**Response 200**
+
+```json
+{
+  "status": "success",
+  "payload": {
+    "id": "665f2a3b9c1d4e5f6a7b8c9d",
+    "email": "ana@mail.com",
+    "role": "user"
+  }
+}
+```
+
+**Response 401** — sin cookie, o con un token inválido o expirado
+
+```json
+{ "status": "error", "message": "No autenticado" }
+```
+
+### POST /api/sessions/logout
+
+No lleva body. Borra la cookie `currentUser`.
+
+**Response 200**
+
+```json
+{ "status": "success", "message": "Sesión cerrada" }
+```
+
+### Cómo probar el flujo completo
+
+Con `curl`, guardando las cookies en un archivo:
+
+```bash
+# 1. registro
+curl -X POST http://localhost:8080/api/sessions/register \
+  -H "Content-Type: application/json" \
+  -d '{"first_name":"Ana","last_name":"Pérez","email":"ana@mail.com","password":"Secreta123"}'
+
+# 2. login: guarda la cookie en cookies.txt
+curl -c cookies.txt -X POST http://localhost:8080/api/sessions/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"ana@mail.com","password":"Secreta123"}'
+
+# 3. current: manda la cookie guardada
+curl -b cookies.txt http://localhost:8080/api/sessions/current
+
+# 4. logout
+curl -b cookies.txt -c cookies.txt -X POST http://localhost:8080/api/sessions/logout
+
+# 5. current otra vez: ahora responde 401
+curl -b cookies.txt http://localhost:8080/api/sessions/current
+```
+
+En Postman o Thunder Client no hace falta nada especial: la cookie se guarda sola después del login y viaja en los pedidos siguientes.
+
+### La cookie
+
+| Atributo | Valor | Por qué |
+|---|---|---|
+| `httpOnly` | `true` | JavaScript del navegador no puede leerla; mitiga robo de token por XSS |
+| `sameSite` | `lax` | No se envía en pedidos desde otros sitios; mitiga CSRF |
+| `maxAge` | `3600000` (1 hora) | La sesión caduca sola |
+| `secure` | solo en producción | Exige HTTPS al desplegar, sin romper el desarrollo en `localhost` |
+
+El token se firma con `JWT_SECRET` y expira según `JWT_EXPIRES_IN`, ambas leídas desde el entorno. Su payload lleva únicamente `id`, `email` y `role`: **nunca la contraseña**, ni siquiera hasheada.
+
 ## Seguridad de las contraseñas
 
 Tres capas independientes evitan que la contraseña se filtre:
@@ -378,9 +494,7 @@ Colección `users` en MongoDB Atlas. El campo `password` guarda un hash de bcryp
 
 ## Próximos pasos
 
-- Login con verificación de contraseña (el helper `isValidPassword` ya está listo en `utils/hash.js`).
-- Autenticación con JWT y cookies, integrada con Passport.
-- Ruta `current` para recuperar el usuario autenticado.
+- Integración de la autenticación con Passport.
 - Autorización por roles y middleware de permisos.
 - CRUD completo de eventos, inscripciones y control de cupos.
 
