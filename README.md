@@ -476,6 +476,12 @@ Registro exitoso y rechazo del email duplicado. En la petición viaja `"password
 
 ![Respuesta del endpoint de registro](docs/register-response.png)
 
+### Autenticación con JWT y cookies
+
+Flujo completo en una corrida. **(a)** el login responde `Login correcto` y devuelve la cookie `currentUser` con `HttpOnly`, `SameSite=Lax` y `Max-Age=3600`; **(b)** `/current` con esa cookie devuelve `200` con `id`, `email` y `role`; **(c)** el mismo `/current` sin cookie devuelve `401` con `No autenticado`:
+
+![Login, current con cookie y current sin cookie](docs/auth-flujo.png)
+
 ### Contraseñas almacenadas
 
 Colección `users` en MongoDB Atlas. El campo `password` guarda un hash de bcrypt (`$2b$10$...`), nunca el texto original:
