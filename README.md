@@ -20,7 +20,8 @@ La plataforma permitirá:
 | Pre-entrega 1 | Estructura base por capas, servidor Express y variables de entorno | Completada |
 | Pre-entrega 2 | Registro seguro de usuarios con validaciones, bcrypt y persistencia en MongoDB | Completada |
 | Pre-entrega 3 | Login, JWT en cookie `HttpOnly`, ruta protegida `current` y logout | Completada |
-| Próximas | Passport, roles y autorización, gestión de eventos e inscripciones | Pendiente |
+| Pre-entrega 4 | Autenticación centralizada con Passport (estrategias `register`, `login` y `current`) | Completada |
+| Próximas | Roles y autorización, gestión de eventos e inscripciones | Pendiente |
 
 ## Tecnologías
 
@@ -34,6 +35,9 @@ La plataforma permitirá:
 | bcrypt | Hasheo de contraseñas |
 | jsonwebtoken | Firma y verificación de los JWT |
 | cookie-parser | Lectura de la cookie de autenticación |
+| Passport | Orquestación de las estrategias de autenticación |
+| passport-custom | Estrategias `register` y `login` (validación propia sobre el body) |
+| passport-jwt | Estrategia `current` (lee y verifica el JWT de la cookie) |
 | node:test | Runner de pruebas nativo de Node (sin dependencias extra) |
 | Supertest | Pruebas de integración sobre los endpoints HTTP |
 | mongodb-memory-server | MongoDB efímero para correr los tests sin base externa |
@@ -61,6 +65,8 @@ cp .env.example .env
 | `MONGO_URL` | Cadena de conexión a MongoDB | `mongodb://localhost:27017/eventos_peru` |
 | `JWT_SECRET` | Clave secreta para firmar los tokens JWT | `mi_clave_secreta` |
 | `JWT_EXPIRES_IN` | Tiempo de validez del token | `1h` |
+
+`.env.example` incluye además, comentadas, las variables para futuros providers OAuth (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, etc.). No se usan en esta entrega; quedan documentadas para cuando se agregue esa estrategia en `passport.config.js`.
 
 `MONGO_URL` acepta tanto una instancia local como MongoDB Atlas:
 
@@ -116,19 +122,19 @@ plataforma-eventos-peru/
 │   ├── server.js                       # levanta el servidor
 │   ├── config/
 │   │   ├── env.config.js               # carga y centraliza las variables de entorno
-│   │   └── db.config.js                # conexión a MongoDB
+│   │   ├── db.config.js                # conexión a MongoDB
+│   │   └── passport.config.js          # estrategias 'register', 'login' y 'current'
 │   ├── routes/
 │   │   ├── index.router.js             # router principal montado en /api
 │   │   ├── health.router.js
 │   │   ├── events.router.js
-│   │   └── sessions.router.js
+│   │   └── sessions.router.js          # delega en passport.authenticate(...)
 │   ├── controllers/
 │   │   ├── health.controller.js
 │   │   ├── events.controller.js
-│   │   └── sessions.controller.js
+│   │   └── sessions.controller.js      # genera el JWT y setea la cookie tras el login
 │   ├── services/
-│   │   ├── events.service.js
-│   │   └── sessions.service.js
+│   │   └── events.service.js
 │   ├── repositories/
 │   │   ├── events.repository.js
 │   │   └── users.repository.js
@@ -139,7 +145,7 @@ plataforma-eventos-peru/
 │   │   ├── User.js
 │   │   └── Event.js
 │   ├── middlewares/
-│   │   ├── auth.middleware.js          # verifica el JWT de la cookie
+│   │   ├── passportAuth.middleware.js  # ejecuta una estrategia y homogeneiza el fallo
 │   │   ├── notFound.middleware.js
 │   │   └── errorHandler.middleware.js
 │   └── utils/
@@ -160,7 +166,7 @@ plataforma-eventos-peru/
 │   └── unit/                           # pruebas de la lógica por capa
 │       ├── events.dao.test.js
 │       ├── events.service.test.js
-│       ├── sessions.service.test.js
+│       ├── passport.config.test.js     # estrategias register/login con repositorio simulado
 │       ├── hash.test.js
 │       ├── jwt.test.js
 │       ├── validators.test.js
@@ -178,18 +184,29 @@ plataforma-eventos-peru/
 router  ->  controller  ->  service  ->  repository  ->  dao  ->  fuente de datos
 ```
 
-Cada capa conoce solo a la siguiente. Los usuarios ya se persisten en MongoDB; los eventos siguen en memoria hasta la entrega que los implemente, y ese cambio solo afectará a su DAO.
+Cada capa conoce solo a la siguiente. Los eventos siguen en memoria hasta la entrega que los implemente, y ese cambio solo afectará a su DAO.
+
+La autenticación (registro, login y usuario actual) ya no pasa por un `service`: la validación, la normalización y el acceso a datos viven dentro de la estrategia de Passport correspondiente, y el controller solo entra en juego después de que la estrategia autenticó (o creó) al usuario.
 
 Recorrido concreto del registro de un usuario:
 
 ```
 POST /api/sessions/register
-  └─ sessions.router.js      define la ruta
-     └─ sessions.controller  lee el body y delega
-        └─ sessions.service  valida, normaliza, verifica duplicados y hashea
-           └─ users.repository
-              └─ users.dao   persiste con Mongoose
-                 └─ User.js  modelo de la colección
+  └─ sessions.router.js       define la ruta y delega en passport.authenticate('register', ...)
+     └─ passport.config.js    estrategia 'register': valida, normaliza, verifica duplicados y hashea
+        └─ users.repository
+           └─ users.dao       persiste con Mongoose
+              └─ User.js      modelo de la colección
+     └─ sessions.controller   ya con el usuario creado en req.user, arma la respuesta publica
+```
+
+Recorrido concreto del login:
+
+```
+POST /api/sessions/login
+  └─ sessions.router.js       delega en passport.authenticate('login', ...)
+     └─ passport.config.js    estrategia 'login': busca el usuario y compara el hash con bcrypt
+     └─ sessions.controller   con el usuario en req.user, genera el JWT y setea la cookie httpOnly
 ```
 
 ## Rutas disponibles
@@ -206,7 +223,7 @@ Todas las rutas cuelgan del prefijo `/api`.
 | GET | `/api/sessions/current` | Devuelve el usuario autenticado | Cookie `currentUser` |
 | POST | `/api/sessions/logout` | Cierra la sesión y borra la cookie | No |
 
-Cada ruta está documentada con su request y su response más abajo: las de sesiones en [Registro de usuarios](#registro-de-usuarios) y [Autenticación con JWT y cookies](#autenticación-con-jwt-y-cookies), y las demás en [Ejemplos de respuesta](#ejemplos-de-respuesta).
+Cada ruta está documentada con su request y su response más abajo: las de sesiones en [Registro de usuarios](#registro-de-usuarios), [Autenticación centralizada con Passport](#autenticación-centralizada-con-passport) y [Autenticación con JWT y cookies](#autenticación-con-jwt-y-cookies), y las demás en [Ejemplos de respuesta](#ejemplos-de-respuesta).
 
 ## Registro de usuarios
 
@@ -317,6 +334,30 @@ password: '$2b$10$N9qo8uLOickgx2ZMRZoMy...'
 ```
 
 También se puede revisar desde MongoDB Compass abriendo la colección `users`.
+
+## Autenticación centralizada con Passport
+
+A partir de esta entrega, `register`, `login` y `current` pasan por estrategias de [Passport](https://www.passportjs.org/) centralizadas en `src/config/passport.config.js`. El contrato externo no cambia respecto de la Pre-entrega 3: las rutas, los códigos de estado y las respuestas son los mismos: lo que cambia es la organización interna.
+
+`app.js` solo hace `app.use(passport.initialize())`; no define ninguna estrategia. Las estrategias se registran al importar `passport.config.js`, así que agregar un provider nuevo no requiere tocar `app.js`.
+
+| Estrategia | Tipo | Qué hace |
+|---|---|---|
+| `register` | `passport-custom` | Valida los campos obligatorios, normaliza el email, verifica que no esté duplicado y hashea la contraseña con bcrypt antes de crear el usuario. El rol siempre queda en `user` |
+| `login` | `passport-custom` | Busca el usuario por email y compara la contraseña con `bcrypt.compare`. Si el email no existe o la contraseña no coincide, responde el mismo mensaje genérico |
+| `current` | `passport-jwt` | Extrae el JWT de la cookie `currentUser` (no del header `Authorization`) mediante un extractor propio, lo verifica con `JWT_SECRET` y deja su payload en `req.user` |
+
+Se usa `passport-custom` en `register` y `login` en lugar de `passport-local` porque ambas estrategias necesitan devolver mensajes de error específicos (campos faltantes, formato de email, largo de la contraseña) que la validación automática de `passport-local` no permite personalizar sin perder ese detalle.
+
+Ni `register` ni `login` generan el JWT: eso es responsabilidad exclusiva del controller (`sessions.controller.js`), después de que la estrategia autenticó (o creó) al usuario. Así, cambiar cómo se firma o se transporta el token no requiere tocar las estrategias.
+
+`GET /api/sessions/current` usa la estrategia `current` como middleware de la ruta (`passport.authenticate('current', ...)`); si no hay token válido responde `401`, y si lo hay, el controller arma `{ id, email, role }` a partir de `req.user`, sin el password.
+
+`POST /api/sessions/logout` no pasa por Passport: solo borra la cookie `currentUser`, porque no hay nada que autenticar para cerrar sesión.
+
+### Preparado para providers externos
+
+`passport.config.js` está pensado para sumar nuevas estrategias (Google, GitHub, etc.) sin modificar `app.js` ni las rutas existentes: alcanza con registrar la estrategia nueva ahí (`passport.use('google', new GoogleStrategy(...))`) y agregar la ruta que la invoque. Las variables de entorno para esos providers ya están documentadas, comentadas, en `.env.example`.
 
 ## Autenticación con JWT y cookies
 
@@ -429,7 +470,7 @@ El token se firma con `JWT_SECRET` y expira según `JWT_EXPIRES_IN`, ambas leíd
 
 Tres capas independientes evitan que la contraseña se filtre:
 
-1. **Nunca se guarda en texto plano.** El servicio la hashea con bcrypt (`utils/hash.js`, 10 rondas de salt) antes de pasarla al repositorio.
+1. **Nunca se guarda en texto plano.** La estrategia `register` la hashea con bcrypt (`utils/hash.js`, 10 rondas de salt) antes de pasarla al repositorio.
 2. **Nunca sale en una respuesta.** Todo usuario que viaja al cliente pasa por `utils/user.mapper.js`, que arma un objeto solo con `id`, `first_name`, `last_name`, `email` y `role`.
 3. **Refuerzo en el modelo.** El esquema de Mongoose define un `toJSON` que elimina el campo `password`, por si algún documento se serializara directamente.
 
@@ -482,6 +523,8 @@ Flujo completo en una corrida. **(a)** el login responde `Login correcto` y devu
 
 ![Login, current con cookie y current sin cookie](docs/auth-flujo.png)
 
+> El comportamiento de estas capturas no cambió con la Pre-entrega 4: por dentro, `login` y `current` ahora pasan por las estrategias de Passport descritas en [Autenticación centralizada con Passport](#autenticación-centralizada-con-passport), pero las respuestas HTTP son las mismas.
+
 ### Contraseñas almacenadas
 
 Colección `users` en MongoDB Atlas. El campo `password` guarda un hash de bcrypt (`$2b$10$...`), nunca el texto original:
@@ -500,7 +543,7 @@ Colección `users` en MongoDB Atlas. El campo `password` guarda un hash de bcryp
 
 ## Próximos pasos
 
-- Integración de la autenticación con Passport.
+- Estrategias de Passport para providers externos (Google, GitHub, etc.), apoyadas en la estructura de `passport.config.js`.
 - Autorización por roles y middleware de permisos.
 - CRUD completo de eventos, inscripciones y control de cupos.
 
