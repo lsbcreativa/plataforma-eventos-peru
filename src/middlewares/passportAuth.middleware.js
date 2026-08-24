@@ -16,4 +16,7 @@ export const authenticate = (strategy, failureMessage, failureStatus = 401) => (
   })(req, res, next);
 };
 
+/** Middleware reutilizable: exige una sesion valida (cookie con JWT) sin restringir por rol. */
+export const requireAuth = authenticate('current', 'No autenticado', 401);
+
 export default authenticate;

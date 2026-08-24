@@ -22,3 +22,21 @@ export const getEventById = async (req, res, next) => {
     next(error);
   }
 };
+
+export const createEvent = async (req, res, next) => {
+  try {
+    const event = await eventsService.createEvent(req.body, req.user.id);
+    successResponse(res, event, 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateEvent = async (req, res, next) => {
+  try {
+    const event = await eventsService.updateEvent(req.params.eid, req.body, req.user);
+    successResponse(res, event);
+  } catch (error) {
+    next(error);
+  }
+};

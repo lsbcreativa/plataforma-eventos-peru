@@ -21,7 +21,8 @@ La plataforma permitirá:
 | Pre-entrega 2 | Registro seguro de usuarios con validaciones, bcrypt y persistencia en MongoDB | Completada |
 | Pre-entrega 3 | Login, JWT en cookie `HttpOnly`, ruta protegida `current` y logout | Completada |
 | Pre-entrega 4 | Autenticación centralizada con Passport (estrategias `register`, `login` y `current`) | Completada |
-| Próximas | Roles y autorización, gestión de eventos e inscripciones | Pendiente |
+| Pre-entrega 5 | Autorización por roles: middleware de roles, matriz de permisos, propiedad de recursos | Completada |
+| Próximas | CRUD completo de eventos e inscripciones, control de cupos | Pendiente |
 
 ## Tecnologías
 
@@ -113,6 +114,8 @@ Las pruebas se dividen en dos grupos:
 
 Las pruebas unitarias aprovechan la inyección de dependencias de la arquitectura: los servicios reciben repositorios simulados, de modo que la lógica se valida sin tocar la fuente de datos real.
 
+Las pruebas de integración que tocan MongoDB (`register.test.js`, `auth.test.js`, `authorization.test.js`) usan `mongodb-memory-server`, que levanta un Mongo real y efímero: no dependen del `MONGO_URL` del `.env` ni de tener una base externa corriendo. Van dentro de `devDependencies`, junto con `supertest`, así que `npm install` en cualquier entorno aislado (CI, contenedor limpio, otra máquina) deja todo listo para correr `npm test` sin instalar nada más. Unico requisito: la primera corrida necesita salida a internet para que `mongodb-memory-server` descargue el binario de MongoDB una vez; las siguientes corridas reusan esa cache local.
+
 ## Estructura de carpetas
 
 ```
@@ -127,14 +130,17 @@ plataforma-eventos-peru/
 │   ├── routes/
 │   │   ├── index.router.js             # router principal montado en /api
 │   │   ├── health.router.js
-│   │   ├── events.router.js
-│   │   └── sessions.router.js          # delega en passport.authenticate(...)
+│   │   ├── events.router.js            # POST y PATCH protegidos con requireAuth + authorize
+│   │   ├── sessions.router.js          # delega en passport.authenticate(...)
+│   │   └── users.router.js             # GET /api/users, solo admin
 │   ├── controllers/
 │   │   ├── health.controller.js
 │   │   ├── events.controller.js
-│   │   └── sessions.controller.js      # genera el JWT y setea la cookie tras el login
+│   │   ├── sessions.controller.js      # genera el JWT y setea la cookie tras el login
+│   │   └── users.controller.js
 │   ├── services/
-│   │   └── events.service.js
+│   │   ├── events.service.js           # valida, crea eventos y aplica la propiedad de recursos
+│   │   └── users.service.js
 │   ├── repositories/
 │   │   ├── events.repository.js
 │   │   └── users.repository.js
@@ -142,10 +148,11 @@ plataforma-eventos-peru/
 │   │   ├── events.dao.js
 │   │   └── users.dao.js
 │   ├── models/
-│   │   ├── User.js
+│   │   ├── User.js                     # campo role: user (default) | organizer | admin
 │   │   └── Event.js
 │   ├── middlewares/
-│   │   ├── passportAuth.middleware.js  # ejecuta una estrategia y homogeneiza el fallo
+│   │   ├── passportAuth.middleware.js  # autenticacion: exporta requireAuth (401 sin sesion)
+│   │   ├── authorize.middleware.js     # autorizacion: authorize(...roles) (403 sin permiso)
 │   │   ├── notFound.middleware.js
 │   │   └── errorHandler.middleware.js
 │   └── utils/
@@ -162,10 +169,12 @@ plataforma-eventos-peru/
 │   │   ├── events.test.js
 │   │   ├── register.test.js            # registro contra un MongoDB real
 │   │   ├── auth.test.js                # login, current y logout
+│   │   ├── authorization.test.js       # roles, 401 vs 403 y propiedad de recursos
 │   │   └── errores.test.js
 │   └── unit/                           # pruebas de la lógica por capa
 │       ├── events.dao.test.js
-│       ├── events.service.test.js
+│       ├── events.service.test.js      # incluye createEvent/updateEvent y propiedad de recursos
+│       ├── authorize.middleware.test.js
 │       ├── passport.config.test.js     # estrategias register/login con repositorio simulado
 │       ├── hash.test.js
 │       ├── jwt.test.js
@@ -209,6 +218,18 @@ POST /api/sessions/login
      └─ sessions.controller   con el usuario en req.user, genera el JWT y setea la cookie httpOnly
 ```
 
+Recorrido concreto de la creación de un evento, con los dos middlewares de autorización antes de tocar el router de negocio:
+
+```
+POST /api/events
+  └─ requireAuth              estrategia 'current' de Passport: sin sesion valida, corta con 401
+     └─ authorize('organizer', 'admin')   compara req.user.role: si no coincide, corta con 403
+        └─ events.controller  createEvent
+           └─ events.service  valida los campos y arma el evento con organizer = req.user.id
+              └─ events.repository
+                 └─ events.dao
+```
+
 ## Rutas disponibles
 
 Todas las rutas cuelgan del prefijo `/api`.
@@ -218,12 +239,15 @@ Todas las rutas cuelgan del prefijo `/api`.
 | GET | `/api/health` | Verifica que el servidor esté activo | No |
 | GET | `/api/events` | Lista de eventos | No |
 | GET | `/api/events/:eid` | Detalle de un evento | No |
+| POST | `/api/events` | Crea un evento nuevo | Cookie + rol `organizer` o `admin` |
+| PATCH | `/api/events/:eid` | Modifica un evento (propio si es `organizer`, cualquiera si es `admin`) | Cookie + rol `organizer` o `admin` |
 | POST | `/api/sessions/register` | Registra un usuario nuevo | No |
 | POST | `/api/sessions/login` | Valida credenciales y entrega la cookie de sesión | No |
 | GET | `/api/sessions/current` | Devuelve el usuario autenticado | Cookie `currentUser` |
 | POST | `/api/sessions/logout` | Cierra la sesión y borra la cookie | No |
+| GET | `/api/users` | Lista todos los usuarios registrados | Cookie + rol `admin` |
 
-Cada ruta está documentada con su request y su response más abajo: las de sesiones en [Registro de usuarios](#registro-de-usuarios), [Autenticación centralizada con Passport](#autenticación-centralizada-con-passport) y [Autenticación con JWT y cookies](#autenticación-con-jwt-y-cookies), y las demás en [Ejemplos de respuesta](#ejemplos-de-respuesta).
+Cada ruta está documentada con su request y su response más abajo: las de sesiones en [Registro de usuarios](#registro-de-usuarios), [Autenticación centralizada con Passport](#autenticación-centralizada-con-passport) y [Autenticación con JWT y cookies](#autenticación-con-jwt-y-cookies); las de eventos y usuarios en [Roles y autorización](#roles-y-autorización); las demás en [Ejemplos de respuesta](#ejemplos-de-respuesta).
 
 ## Registro de usuarios
 
@@ -466,6 +490,94 @@ En Postman o Thunder Client no hace falta nada especial: la cookie se guarda sol
 
 El token se firma con `JWT_SECRET` y expira según `JWT_EXPIRES_IN`, ambas leídas desde el entorno. Su payload lleva únicamente `id`, `email` y `role`: **nunca la contraseña**, ni siquiera hasheada.
 
+## Roles y autorización
+
+Estar autenticado no alcanza para hacer cualquier cosa: cada acción se valida además contra el rol del usuario. El modelo `User` (`src/models/User.js`) define el campo `role` con los valores `user`, `organizer` y `admin`, con `user` como valor por defecto. El registro público (`POST /api/sessions/register`) siempre crea el usuario con rol `user`; la estrategia de registro ignora cualquier `role` que llegue en el body, así que no hay forma de auto-asignarse `organizer` o `admin` desde afuera. Para dar de alta un `organizer` o un `admin` hay que asignar el rol directamente en la base de datos (por ejemplo con `mongosh` o MongoDB Compass), ya que a propósito no existe un endpoint público para eso.
+
+### Matriz de permisos
+
+| Acción | `user` | `organizer` | `admin` |
+|---|---|---|---|
+| Consultar eventos publicados | ✅ | ✅ | ✅ |
+| Crear eventos | ❌ | ✅ | ✅ |
+| Modificar/cancelar eventos propios | ❌ | ✅ | ✅ |
+| Modificar cualquier evento | ❌ | ❌ | ✅ |
+| Ver todos los usuarios | ❌ | ❌ | ✅ |
+
+"Consultar eventos publicados" no exige rol porque `GET /api/events` y `GET /api/events/:eid` son públicas: la matriz no restringe esa acción a ningún rol, así que tampoco se le exige sesión iniciada.
+
+### Los dos middlewares
+
+Autenticación y autorización son responsabilidades separadas, en archivos distintos y reutilizables desde cualquier ruta:
+
+| Middleware | Archivo | Qué valida | Si falla |
+|---|---|---|---|
+| Autenticación | `src/middlewares/passportAuth.middleware.js` (`requireAuth`) | Que exista una sesión válida: ejecuta la estrategia `current` de Passport, que lee y verifica el JWT de la cookie `currentUser` | **401** `No autenticado` |
+| Autorización | `src/middlewares/authorize.middleware.js` (`authorize(...roles)`) | Que `req.user.role` esté entre los roles permitidos para esa ruta | **403** `No tenés permisos para realizar esta acción` |
+
+`authorize` siempre se monta después de `requireAuth` en la ruta, porque necesita `req.user` ya poblado:
+
+```js
+router.post('/', requireAuth, authorize('organizer', 'admin'), createEvent);
+```
+
+Ningún rol queda hardcodeado dentro de un controller o de la lógica de negocio: la decisión de "quién puede entrar a esta ruta" vive únicamente en la cadena de middlewares de cada router (`events.router.js`, `users.router.js`).
+
+### 401 vs. 403
+
+Los dos códigos existen para distinguir dos preguntas distintas, y la API nunca los usa indistintamente:
+
+- **401 (No autenticado):** "no sé quién sos". No hay cookie, el token es inválido o expiró. Lo devuelve `requireAuth`, antes de llegar a mirar ningún rol.
+- **403 (Sin permiso):** "ya sé quién sos, pero no podés hacer esto". Hay una sesión válida, pero el rol no alcanza para esa acción (`authorize`) o el usuario no es dueño del recurso que intenta modificar (validación de propiedad, más abajo).
+
+Ninguno de los dos casos responde nunca con 500: son errores esperables del negocio, no fallas del servidor, y se manejan igual que el resto de los `AppError` de la app.
+
+### Rutas protegidas (mínimo exigido)
+
+| Ruta | Requisito | Fallo |
+|---|---|---|
+| `GET /api/sessions/current` | Sesión válida, cualquier rol | 401 si no hay sesión |
+| `POST /api/events` | Sesión válida + rol `organizer` o `admin` | 401 sin sesión, 403 con rol `user` |
+| `PATCH /api/events/:eid` | Sesión válida + rol `organizer` o `admin` + ser dueño del evento (o ser `admin`) | 401 sin sesión, 403 sin rol o sin ser dueño |
+| `GET /api/users` | Sesión válida + rol `admin` | 401 sin sesión, 403 con rol `user` u `organizer` |
+
+### Propiedad de recursos
+
+Que un `organizer` tenga el rol correcto no significa que pueda tocar cualquier evento: `authorize('organizer', 'admin')` solo verifica el rol, no de quién es el evento. Esa segunda validación (¿este evento es tuyo?) necesita el registro puntual, así que vive en `EventsService.updateEvent` (`src/services/events.service.js`), justo después de buscarlo:
+
+```js
+if (user.role !== 'admin' && String(event.organizer) !== String(user.id)) {
+  throw new AppError('No podés modificar un evento que no te pertenece', 403);
+}
+```
+
+Un `admin` se salta esta comparación y puede modificar cualquier evento. El `id` y el `organizer` de un evento tampoco se pueden reasignar desde el body de un `PATCH`, sin importar el rol de quien lo pida.
+
+### Cómo probarlo
+
+```bash
+# organizer o admin se asignan directo en Mongo, no hay endpoint publico para eso
+mongosh "$MONGO_URL" --eval "db.users.updateOne({email:'ana@mail.com'}, {\$set:{role:'organizer'}})"
+
+# login con ese usuario y uso de la cookie guardada
+curl -c cookies.txt -X POST http://localhost:8080/api/sessions/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"ana@mail.com","password":"Secreta123"}'
+
+# 403 si el usuario logueado tiene rol "user"
+curl -b cookies.txt -X POST http://localhost:8080/api/events \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Congreso Tech 2026","description":"Charlas de IA y cloud","venue":"Centro de Convenciones","date":"2026-11-20","capacity":100}'
+
+# 401 sin cookie
+curl -X POST http://localhost:8080/api/events -H "Content-Type: application/json" -d '{}'
+
+# 200 solo si quien pide es admin
+curl -b cookies.txt http://localhost:8080/api/users
+```
+
+`test/integration/authorization.test.js` automatiza exactamente estos casos (`user` vs. `organizer` vs. `admin` en `POST /api/events`, la ruta administrativa `GET /api/users`, sin cookie, y un `organizer` intentando modificar el evento de otro), sembrando los usuarios con cada rol directo en MongoDB (igual que se haría a mano).
+
 ## Seguridad de las contraseñas
 
 Tres capas independientes evitan que la contraseña se filtre:
@@ -544,8 +656,8 @@ Colección `users` en MongoDB Atlas. El campo `password` guarda un hash de bcryp
 ## Próximos pasos
 
 - Estrategias de Passport para providers externos (Google, GitHub, etc.), apoyadas en la estructura de `passport.config.js`.
-- Autorización por roles y middleware de permisos.
-- CRUD completo de eventos, inscripciones y control de cupos.
+- CRUD completo de eventos (persistencia en MongoDB, borrado, listados por organizer).
+- Inscripciones y control de cupos disponibles.
 
 ## Autor
 

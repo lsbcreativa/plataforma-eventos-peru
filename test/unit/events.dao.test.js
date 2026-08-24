@@ -47,4 +47,18 @@ describe('EventsDao', () => {
 
     assert.equal((await dao.getAll()).length, 2);
   });
+
+  it('actualiza un evento existente', async () => {
+    const creado = await dao.create({ title: 'Original', city: 'Lima' });
+
+    const actualizado = await dao.update(creado.id, { title: 'Actualizado' });
+
+    assert.equal(actualizado.title, 'Actualizado');
+    assert.equal(actualizado.city, 'Lima');
+    assert.equal((await dao.getById(creado.id)).title, 'Actualizado');
+  });
+
+  it('devuelve null al actualizar un id inexistente', async () => {
+    assert.equal(await dao.update('999', { title: 'x' }), null);
+  });
 });

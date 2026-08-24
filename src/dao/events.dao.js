@@ -23,6 +23,14 @@ export class EventsDao {
     this.events.push(event);
     return event;
   }
+
+  async update(id, changes) {
+    const index = this.events.findIndex((event) => event.id === id);
+    if (index === -1) return null;
+
+    this.events[index] = { ...this.events[index], ...changes };
+    return this.events[index];
+  }
 }
 
 export const eventsDao = new EventsDao();
