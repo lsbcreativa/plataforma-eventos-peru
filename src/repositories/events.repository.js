@@ -5,8 +5,12 @@ export class EventsRepository {
     this.dao = dao;
   }
 
-  async getEvents(filter) {
-    return this.dao.getAll(filter);
+  async findEvents(filter, options) {
+    return this.dao.find(filter, options);
+  }
+
+  async countEvents(filter) {
+    return this.dao.count(filter);
   }
 
   async getEventById(id) {
@@ -19,10 +23,6 @@ export class EventsRepository {
 
   async updateEvent(id, changes) {
     return this.dao.update(id, changes);
-  }
-
-  async deleteEvent(id) {
-    return this.dao.remove(id);
   }
 }
 

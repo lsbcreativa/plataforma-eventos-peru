@@ -4,7 +4,7 @@ import {
   getEventById,
   createEvent,
   updateEvent,
-  deleteEvent
+  changeEventStatus
 } from '../controllers/events.controller.js';
 import { requireAuth } from '../middlewares/passportAuth.middleware.js';
 import { authorize } from '../middlewares/authorize.middleware.js';
@@ -12,9 +12,9 @@ import { authorize } from '../middlewares/authorize.middleware.js';
 const router = Router();
 
 router.get('/', getEvents);
-router.get('/:eid', getEventById);
+router.get('/:id', getEventById);
 router.post('/', requireAuth, authorize('organizer', 'admin'), createEvent);
-router.patch('/:eid', requireAuth, authorize('organizer', 'admin'), updateEvent);
-router.delete('/:eid', requireAuth, authorize('organizer', 'admin'), deleteEvent);
+router.put('/:id', requireAuth, authorize('organizer', 'admin'), updateEvent);
+router.patch('/:id/status', requireAuth, authorize('organizer', 'admin'), changeEventStatus);
 
 export default router;

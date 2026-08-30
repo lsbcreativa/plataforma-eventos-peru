@@ -22,7 +22,8 @@ La plataforma permitirá:
 | Pre-entrega 3 | Login, JWT en cookie `HttpOnly`, ruta protegida `current` y logout | Completada |
 | Pre-entrega 4 | Autenticación centralizada con Passport (estrategias `register`, `login` y `current`) | Completada |
 | Pre-entrega 5 | Autorización por roles: middleware de roles, matriz de permisos, propiedad de recursos | Completada |
-| Próximas | CRUD completo de eventos e inscripciones, control de cupos | Pendiente |
+| Pre-entrega 6 | Entidad `Event` en MongoDB: CRUD completo, reglas de negocio, filtros, paginación y ordenamiento | Completada |
+| Próximas | Inscripciones, tickets, control de cupos y notificaciones | Pendiente |
 
 ## Tecnologías
 
@@ -130,7 +131,7 @@ plataforma-eventos-peru/
 │   ├── routes/
 │   │   ├── index.router.js             # router principal montado en /api
 │   │   ├── health.router.js
-│   │   ├── events.router.js            # POST y PATCH protegidos con requireAuth + authorize
+│   │   ├── events.router.js            # POST, PUT y PATCH .../status protegidos con requireAuth + authorize
 │   │   ├── sessions.router.js          # delega en passport.authenticate(...)
 │   │   └── users.router.js             # GET /api/users, solo admin
 │   ├── controllers/
@@ -139,17 +140,17 @@ plataforma-eventos-peru/
 │   │   ├── sessions.controller.js      # genera el JWT y setea la cookie tras el login
 │   │   └── users.controller.js
 │   ├── services/
-│   │   ├── events.service.js           # valida, crea eventos y aplica la propiedad de recursos
+│   │   ├── events.service.js           # filtros/paginacion, reglas de negocio y propiedad de recursos
 │   │   └── users.service.js
 │   ├── repositories/
 │   │   ├── events.repository.js
 │   │   └── users.repository.js
 │   ├── dao/
-│   │   ├── events.dao.js
+│   │   ├── events.dao.js               # persiste en MongoDB con Mongoose
 │   │   └── users.dao.js
 │   ├── models/
 │   │   ├── User.js                     # campo role: user (default) | organizer | admin
-│   │   └── Event.js
+│   │   └── Event.js                    # campo status: draft (default) | published | cancelled | finished
 │   ├── middlewares/
 │   │   ├── passportAuth.middleware.js  # autenticacion: exporta requireAuth (401 sin sesion)
 │   │   ├── authorize.middleware.js     # autorizacion: authorize(...roles) (403 sin permiso)
@@ -162,18 +163,18 @@ plataforma-eventos-peru/
 │       ├── jwt.js                      # firma y verificación de JWT
 │       ├── validators.js               # validaciones y normalización de email
 │       ├── user.mapper.js              # arma el usuario público (sin password)
+│       ├── event.mapper.js             # arma el evento público (id en vez de _id)
 │       └── appError.js                 # error con código HTTP asociado
 ├── test/
 │   ├── integration/                    # pruebas sobre los endpoints HTTP
 │   │   ├── health.test.js
-│   │   ├── events.test.js
+│   │   ├── events.test.js              # listado, filtros, paginacion, ordenamiento, 404
 │   │   ├── register.test.js            # registro contra un MongoDB real
 │   │   ├── auth.test.js                # login, current y logout
-│   │   ├── authorization.test.js       # roles, 401 vs 403 y propiedad de recursos
+│   │   ├── authorization.test.js       # roles, 401 vs 403, propiedad de recursos y cambios de status
 │   │   └── errores.test.js
 │   └── unit/                           # pruebas de la lógica por capa
-│       ├── events.dao.test.js
-│       ├── events.service.test.js      # incluye createEvent/updateEvent y propiedad de recursos
+│       ├── events.service.test.js      # filtros/paginacion, validaciones de negocio y transiciones de status
 │       ├── authorize.middleware.test.js
 │       ├── passport.config.test.js     # estrategias register/login con repositorio simulado
 │       ├── hash.test.js
@@ -193,7 +194,7 @@ plataforma-eventos-peru/
 router  ->  controller  ->  service  ->  repository  ->  dao  ->  fuente de datos
 ```
 
-Cada capa conoce solo a la siguiente. Los eventos siguen en memoria hasta la entrega que los implemente, y ese cambio solo afectará a su DAO.
+Cada capa conoce solo a la siguiente. Los eventos ya persisten en MongoDB a través de `events.dao.js`; el resto de las capas (`events.repository.js`, `events.service.js`) no cambiaron su forma solo porque cambió la fuente de datos.
 
 La autenticación (registro, login y usuario actual) ya no pasa por un `service`: la validación, la normalización y el acceso a datos viven dentro de la estrategia de Passport correspondiente, y el controller solo entra en juego después de que la estrategia autenticó (o creó) al usuario.
 
@@ -225,9 +226,10 @@ POST /api/events
   └─ requireAuth              estrategia 'current' de Passport: sin sesion valida, corta con 401
      └─ authorize('organizer', 'admin')   compara req.user.role: si no coincide, corta con 403
         └─ events.controller  createEvent
-           └─ events.service  valida los campos y arma el evento con organizer = req.user.id
+           └─ events.service  valida campos, capacity, price y fecha; arma el evento con organizer = req.user.id
               └─ events.repository
-                 └─ events.dao
+                 └─ events.dao   persiste con Mongoose
+                    └─ Event.js  modelo de la coleccion
 ```
 
 ## Rutas disponibles
@@ -237,18 +239,18 @@ Todas las rutas cuelgan del prefijo `/api`.
 | Método | Ruta | Descripción | Autenticación |
 |---|---|---|---|
 | GET | `/api/health` | Verifica que el servidor esté activo | No |
-| GET | `/api/events` | Lista de eventos | No |
-| GET | `/api/events/:eid` | Detalle de un evento | No |
+| GET | `/api/events` | Lista eventos con filtros, paginación y ordenamiento | No |
+| GET | `/api/events/:id` | Detalle de un evento | No |
 | POST | `/api/events` | Crea un evento nuevo | Cookie + rol `organizer` o `admin` |
-| PATCH | `/api/events/:eid` | Modifica un evento (propio si es `organizer`, cualquiera si es `admin`) | Cookie + rol `organizer` o `admin` |
-| DELETE | `/api/events/:eid` | Elimina un evento (propio si es `organizer`, cualquiera si es `admin`) | Cookie + rol `organizer` o `admin` |
+| PUT | `/api/events/:id` | Reemplaza los datos de un evento (propio si es `organizer`, cualquiera si es `admin`) | Cookie + rol `organizer` o `admin` |
+| PATCH | `/api/events/:id/status` | Cambia el status de un evento — cancelar es un cambio de status, nunca un borrado físico | Cookie + rol `organizer` o `admin` |
 | POST | `/api/sessions/register` | Registra un usuario nuevo | No |
 | POST | `/api/sessions/login` | Valida credenciales y entrega la cookie de sesión | No |
 | GET | `/api/sessions/current` | Devuelve el usuario autenticado | Cookie `currentUser` |
 | POST | `/api/sessions/logout` | Cierra la sesión y borra la cookie | No |
 | GET | `/api/users` | Lista todos los usuarios registrados | Cookie + rol `admin` |
 
-Cada ruta está documentada con su request y su response más abajo: las de sesiones en [Registro de usuarios](#registro-de-usuarios), [Autenticación centralizada con Passport](#autenticación-centralizada-con-passport) y [Autenticación con JWT y cookies](#autenticación-con-jwt-y-cookies); las de eventos y usuarios en [Roles y autorización](#roles-y-autorización); las demás en [Ejemplos de respuesta](#ejemplos-de-respuesta).
+Cada ruta está documentada con su request y su response más abajo: las de sesiones en [Registro de usuarios](#registro-de-usuarios), [Autenticación centralizada con Passport](#autenticación-centralizada-con-passport) y [Autenticación con JWT y cookies](#autenticación-con-jwt-y-cookies); las de eventos en [Eventos](#eventos); las de roles y usuarios en [Roles y autorización](#roles-y-autorización); las demás en [Ejemplos de respuesta](#ejemplos-de-respuesta).
 
 ## Registro de usuarios
 
@@ -499,15 +501,15 @@ Estar autenticado no alcanza para hacer cualquier cosa: cada acción se valida a
 
 | Acción | `user` | `organizer` | `admin` |
 |---|---|---|---|
-| Consultar eventos publicados | ✅ | ✅ | ✅ |
+| Consultar eventos | ✅ | ✅ | ✅ |
 | Crear eventos | ❌ | ✅ | ✅ |
-| Modificar/cancelar eventos propios | ❌ | ✅ | ✅ |
+| Modificar eventos propios | ❌ | ✅ | ✅ |
 | Modificar cualquier evento | ❌ | ❌ | ✅ |
-| Eliminar eventos propios | ❌ | ✅ | ✅ |
-| Eliminar cualquier evento | ❌ | ❌ | ✅ |
+| Cancelar eventos propios | ❌ | ✅ | ✅ |
+| Cancelar cualquier evento | ❌ | ❌ | ✅ |
 | Ver todos los usuarios | ❌ | ❌ | ✅ |
 
-"Consultar eventos publicados" no exige rol porque `GET /api/events` y `GET /api/events/:eid` son públicas: la matriz no restringe esa acción a ningún rol, así que tampoco se le exige sesión iniciada.
+"Consultar eventos" no exige rol porque `GET /api/events` y `GET /api/events/:id` son públicas: la matriz no restringe esa acción a ningún rol, así que tampoco se le exige sesión iniciada. "Cancelar" es un cambio de `status` a `cancelled`, no un borrado: ver [Eventos](#eventos).
 
 ### Los dos middlewares
 
@@ -541,21 +543,21 @@ Ninguno de los dos casos responde nunca con 500: son errores esperables del nego
 |---|---|---|
 | `GET /api/sessions/current` | Sesión válida, cualquier rol | 401 si no hay sesión |
 | `POST /api/events` | Sesión válida + rol `organizer` o `admin` | 401 sin sesión, 403 con rol `user` |
-| `PATCH /api/events/:eid` | Sesión válida + rol `organizer` o `admin` + ser dueño del evento (o ser `admin`) | 401 sin sesión, 403 sin rol o sin ser dueño |
-| `DELETE /api/events/:eid` | Sesión válida + rol `organizer` o `admin` + ser dueño del evento (o ser `admin`) | 401 sin sesión, 403 sin rol o sin ser dueño |
+| `PUT /api/events/:id` | Sesión válida + rol `organizer` o `admin` + ser dueño del evento (o ser `admin`) | 401 sin sesión, 403 sin rol o sin ser dueño |
+| `PATCH /api/events/:id/status` | Sesión válida + rol `organizer` o `admin` + ser dueño del evento (o ser `admin`) | 401 sin sesión, 403 sin rol o sin ser dueño |
 | `GET /api/users` | Sesión válida + rol `admin` | 401 sin sesión, 403 con rol `user` u `organizer` |
 
 ### Propiedad de recursos
 
-Que un `organizer` tenga el rol correcto no significa que pueda tocar cualquier evento: `authorize('organizer', 'admin')` solo verifica el rol, no de quién es el evento. Esa segunda validación (¿este evento es tuyo?) necesita el registro puntual, así que vive en `EventsService` (`src/services/events.service.js`), en un helper privado (`_getOwnedEvent`) compartido por `updateEvent` y `deleteEvent`, justo después de buscar el evento:
+Que un `organizer` tenga el rol correcto no significa que pueda tocar cualquier evento: `authorize('organizer', 'admin')` solo verifica el rol, no de quién es el evento. Esa segunda validación (¿este evento es tuyo?) necesita el registro puntual, así que vive en `EventsService` (`src/services/events.service.js`), en un helper privado (`_getOwnedEvent`) compartido por `updateEvent` y `changeStatus`, justo después de buscar el evento:
 
 ```js
 if (user.role !== 'admin' && String(event.organizer) !== String(user.id)) {
-  throw new AppError('No podés modificar ni eliminar un evento que no te pertenece', 403);
+  throw new AppError('No podés modificar un evento que no te pertenece', 403);
 }
 ```
 
-Un `admin` se salta esta comparación y puede modificar o eliminar cualquier evento. El `id` y el `organizer` de un evento tampoco se pueden reasignar desde el body de un `PATCH`, sin importar el rol de quien lo pida.
+Un `admin` se salta esta comparación y puede modificar o cambiar el status de cualquier evento. El `id`, el `organizer` y el `status` de un evento no se pueden tocar desde el body de un `PUT`: el `status` tiene su propio endpoint, con sus propias reglas de transición (ver [Eventos](#eventos)).
 
 ### Cómo probarlo
 
@@ -571,19 +573,213 @@ curl -c cookies.txt -X POST http://localhost:8080/api/sessions/login \
 # 403 si el usuario logueado tiene rol "user"
 curl -b cookies.txt -X POST http://localhost:8080/api/events \
   -H "Content-Type: application/json" \
-  -d '{"title":"Congreso Tech 2026","description":"Charlas de IA y cloud","venue":"Centro de Convenciones","date":"2026-11-20","capacity":100}'
+  -d '{"title":"Congreso Tech 2026","description":"Charlas de IA y cloud","category":"tecnologia","location":"Centro de Convenciones","date":"2026-11-20","capacity":100}'
 
 # 401 sin cookie
 curl -X POST http://localhost:8080/api/events -H "Content-Type: application/json" -d '{}'
 
 # 200 solo si quien pide es admin
 curl -b cookies.txt http://localhost:8080/api/users
-
-# DELETE sigue la misma regla que PATCH: 200 si sos el organizer dueño o admin, 403 si no
-curl -b cookies.txt -X DELETE http://localhost:8080/api/events/1
 ```
 
-`test/integration/authorization.test.js` automatiza exactamente estos casos (`user` vs. `organizer` vs. `admin` en `POST /api/events`, la ruta administrativa `GET /api/users`, sin cookie, y un `organizer` intentando modificar o eliminar el evento de otro), sembrando los usuarios con cada rol directo en MongoDB (igual que se haría a mano).
+`test/integration/authorization.test.js` automatiza exactamente estos casos (`user` vs. `organizer` vs. `admin` en `POST /api/events`, la ruta administrativa `GET /api/users`, sin cookie, y un `organizer` intentando modificar o cambiar el status del evento de otro), sembrando los usuarios con cada rol directo en MongoDB (igual que se haría a mano).
+
+## Eventos
+
+A partir de esta entrega los eventos persisten en MongoDB (antes vivían en un array en memoria). El modelo, las validaciones de negocio, los filtros y la paginación son nuevos; los roles y la propiedad de recursos ya existían desde la Pre-entrega 5 y acá simplemente se aplican sobre el CRUD real.
+
+### Modelo `Event`
+
+| Campo | Tipo | Detalle |
+|---|---|---|
+| `title` | String | Requerido |
+| `description` | String | Requerido |
+| `category` | String | Requerido (texto libre: `tecnologia`, `workshop`, `cultura`, lo que use cada organizer) |
+| `location` | String | Requerido |
+| `date` | Date | Requerido |
+| `capacity` | Number | Requerido, entero mayor a 0 |
+| `price` | Number | Opcional, `0` por defecto, no puede ser negativo |
+| `status` | String | `draft` (por defecto), `published`, `cancelled` o `finished` |
+| `organizer` | ObjectId (ref `users`) | Se asigna solo desde `req.user`; nunca se acepta desde el body |
+
+`organizer` es una referencia al `_id` del usuario que creó el evento, no el objeto completo: evita duplicar datos de usuario en cada evento y mantiene una sola fuente de verdad (la colección `users`).
+
+### Reglas de negocio (en `EventsService`, no en las rutas)
+
+Las rutas y los controllers no conocen estas reglas: solo delegan en `events.service.js`, que es el único lugar que las conoce y las aplica.
+
+| Regla | Dónde se aplica | Status |
+|---|---|---|
+| No se acepta una fecha pasada al crear | `createEvent` | `400` |
+| `capacity` debe ser un entero mayor a 0 | `createEvent` y `PUT` (si se envía) | `400` |
+| `price` no puede ser negativo | `createEvent` y `PUT` (si se envía) | `400` |
+| No se puede publicar (`status: published`) un evento `finished` o `cancelled` | `changeStatus` | `400` |
+| Un evento `cancelled` no admite más cambios (ni `PUT` ni un nuevo `status`) | `updateEvent` y `changeStatus` | `409` |
+| Un `organizer` no puede tocar eventos ajenos; un `admin` sí | `updateEvent` y `changeStatus` | `403` |
+
+"Cancelado no admite más cambios, salvo justificación documentada": acá la justificación es que no hay ningún caso de uso definido todavía para reactivar un evento cancelado (por ejemplo, reembolsos de inscripciones ya emitidas complicarían esa reactivación) — queda **explícitamente bloqueado** en vez de dejarlo abierto sin reglas. Si una futura entrega define ese caso de uso, se agrega ahí.
+
+### POST /api/events — crear un evento
+
+Requiere sesión y rol `organizer` o `admin`. El `organizer` del evento creado es siempre `req.user.id`; si el body manda un `organizer` distinto, se ignora.
+
+**Request**
+
+```json
+{
+  "title": "Congreso Tech 2026",
+  "description": "Charlas de IA y cloud",
+  "category": "tecnologia",
+  "location": "Centro de Convenciones de Lima",
+  "date": "2026-11-20",
+  "capacity": 100,
+  "price": 150
+}
+```
+
+**Response 201**
+
+```json
+{
+  "status": "success",
+  "payload": {
+    "id": "665f2a3b9c1d4e5f6a7b8c9d",
+    "title": "Congreso Tech 2026",
+    "description": "Charlas de IA y cloud",
+    "category": "tecnologia",
+    "location": "Centro de Convenciones de Lima",
+    "date": "2026-11-20T00:00:00.000Z",
+    "capacity": 100,
+    "price": 150,
+    "status": "draft",
+    "organizer": "665f28f19c1d4e5f6a7b8c91",
+    "createdAt": "2026-08-30T14:41:39.427Z",
+    "updatedAt": "2026-08-30T14:41:39.427Z"
+  }
+}
+```
+
+Todo evento nuevo arranca en `draft`: para que aparezca como disponible hay que publicarlo explícitamente con `PATCH /api/events/:id/status`. Esto evita que un evento a medio cargar quede visible por accidente.
+
+**Response 403** — rol `user`
+
+```json
+{ "status": "error", "message": "No tenés permisos para realizar esta acción" }
+```
+
+**Response 400** — fecha pasada, `capacity <= 0`, `price < 0` o campos obligatorios faltantes
+
+```json
+{ "status": "error", "message": "La fecha del evento no puede ser en el pasado" }
+```
+
+### GET /api/events — listado con filtros, paginación y ordenamiento
+
+Pública, no requiere sesión.
+
+| Query param | Qué hace |
+|---|---|
+| `status` | Filtra por status exacto (`draft`, `published`, `cancelled`, `finished`) |
+| `category` | Filtra por categoría exacta |
+| `location` | Filtra por ubicación exacta |
+| `dateFrom` / `dateTo` | Filtra eventos con `date` dentro del rango (`$gte` / `$lte`) |
+| `page` | Página a devolver, `1` por defecto |
+| `limit` | Resultados por página, `10` por defecto, tope `100` |
+| `sort` | Campo de orden: `date`, `price`, `capacity` o `createdAt`; anteponer `-` para descendente (ej. `-date`). Por defecto ordena por `date` ascendente |
+
+**Request de ejemplo** (el que pide el enunciado)
+
+```
+GET /api/events?status=published&category=workshop&page=2&limit=5
+```
+
+**Response 200**
+
+```json
+{
+  "status": "success",
+  "payload": {
+    "data": [ { "id": "...", "title": "...", "...": "..." } ],
+    "page": 2,
+    "limit": 5,
+    "total": 12,
+    "totalPages": 3
+  }
+}
+```
+
+`data` nunca devuelve todos los eventos de una: siempre pasa por `skip`/`limit` en la consulta de Mongo (`events.dao.js`), y `total`/`totalPages` salen de un `countDocuments` con el mismo filtro.
+
+### GET /api/events/:id — detalle
+
+Pública. `404` si el evento no existe, incluido el caso de un `id` con formato inválido (no es un `ObjectId`): el DAO atrapa ese `CastError` y lo trata igual que "no encontrado", no como un `500`.
+
+```json
+{ "status": "error", "message": "Evento no encontrado" }
+```
+
+### PUT /api/events/:id — modificar un evento
+
+Requiere ser el `organizer` dueño del evento, o `admin`. Acepta cualquier subconjunto de `title`, `description`, `category`, `location`, `date`, `capacity`, `price` (no hace falta reenviar el evento entero). `id`, `organizer` y `status` se ignoran si vienen en el body — el `status` tiene su propio endpoint a propósito, para no mezclar una edición de datos con una transición de estado que tiene sus propias reglas.
+
+**Response 200** — mismo formato que la creación, con los campos actualizados.
+
+**Response 403** — el `organizer` no es dueño del evento:
+
+```json
+{ "status": "error", "message": "No podés modificar un evento que no te pertenece" }
+```
+
+**Response 409** — el evento ya está `cancelled`:
+
+```json
+{ "status": "error", "message": "Un evento cancelado no se puede modificar" }
+```
+
+### PATCH /api/events/:id/status — cambiar el status
+
+Requiere ser el dueño o `admin`. Es la única forma de "cancelar" un evento: nunca se borra el documento de la base.
+
+**Request**
+
+```json
+{ "status": "cancelled" }
+```
+
+**Response 200** — el evento con el nuevo `status`.
+
+**Response 400** — `status` no es uno de los cuatro valores válidos, o se intenta publicar un evento `finished`/`cancelled`.
+
+**Response 409** — el evento ya está `cancelled` (no admite un nuevo cambio de status).
+
+### Cómo probarlo
+
+```bash
+# crear (requiere cookie de organizer o admin, ver Roles y autorizacion)
+curl -b cookies.txt -X POST http://localhost:8080/api/events \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Congreso Tech 2026","description":"Charlas de IA y cloud","category":"tecnologia","location":"Centro de Convenciones","date":"2026-11-20","capacity":100}'
+
+# publicar (el id sale de la respuesta anterior)
+curl -b cookies.txt -X PATCH http://localhost:8080/api/events/<id>/status \
+  -H "Content-Type: application/json" -d '{"status":"published"}'
+
+# listar publicados, ordenados por fecha, pagina 1 de a 5
+curl "http://localhost:8080/api/events?status=published&sort=date&page=1&limit=5"
+
+# modificar (solo el dueño o un admin)
+curl -b cookies.txt -X PUT http://localhost:8080/api/events/<id> \
+  -H "Content-Type: application/json" -d '{"capacity":150}'
+
+# cancelar: no se borra el evento, solo cambia el status
+curl -b cookies.txt -X PATCH http://localhost:8080/api/events/<id>/status \
+  -H "Content-Type: application/json" -d '{"status":"cancelled"}'
+
+# el evento cancelado sigue existiendo
+curl http://localhost:8080/api/events/<id>
+```
+
+`test/integration/events.test.js` cubre el listado (filtros combinados, paginación, ordenamiento, 404 con id válido e inválido) y `test/integration/authorization.test.js` cubre la creación por rol, la propiedad de recursos en `PUT` y en el cambio de status, y las transiciones de status inválidas — los mismos casos que pide el enunciado de esta entrega.
 
 ## Seguridad de las contraseñas
 
@@ -611,7 +807,7 @@ La suite de tests verifica los tres puntos, incluida una consulta directa a la b
 ```json
 {
   "status": "success",
-  "payload": []
+  "payload": { "data": [], "page": 1, "limit": 10, "total": 0, "totalPages": 0 }
 }
 ```
 
@@ -660,11 +856,14 @@ Colección `users` en MongoDB Atlas. El campo `password` guarda un hash de bcryp
 
 ![Respuesta del endpoint de eventos](docs/events.png)
 
+> Esta captura es de antes de la Pre-entrega 6: en ese momento `GET /api/events` devolvía `payload: []` directamente. Desde esta entrega devuelve `payload: { data, page, limit, total, totalPages }` (ver [Eventos](#eventos)); el array vacío pasó a ser `data: []` dentro de ese objeto.
+
 ## Próximos pasos
 
 - Estrategias de Passport para providers externos (Google, GitHub, etc.), apoyadas en la estructura de `passport.config.js`.
-- CRUD completo de eventos (persistencia en MongoDB, borrado, listados por organizer).
-- Inscripciones y control de cupos disponibles.
+- Inscripciones y tickets sobre eventos publicados.
+- Control de cupos disponibles a partir de las inscripciones confirmadas.
+- Notificaciones (por ejemplo, al publicar o cancelar un evento).
 
 ## Autor
 

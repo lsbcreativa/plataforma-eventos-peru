@@ -1,43 +1,44 @@
+import { Event } from '../models/Event.js';
+
 /**
- * DAO de eventos.
- * En esta etapa persiste en memoria. En la siguiente entrega se reemplaza
- * la fuente de datos por MongoDB manteniendo esta misma interfaz.
+ * DAO de eventos sobre MongoDB.
+ * Recibe el modelo por constructor para poder sustituirlo en las pruebas.
  */
 export class EventsDao {
-  constructor() {
-    this.events = [];
+  constructor(model = Event) {
+    this.model = model;
   }
 
-  async getAll(filter = {}) {
-    const keys = Object.keys(filter);
-    if (keys.length === 0) return this.events;
-    return this.events.filter((event) => keys.every((key) => event[key] === filter[key]));
+  async find(filter, { skip = 0, limit = 10, sort = {} } = {}) {
+    return this.model.find(filter).sort(sort).skip(skip).limit(limit).lean();
   }
 
+  async count(filter) {
+    return this.model.countDocuments(filter);
+  }
+
+  /** Un id con formato invalido (no ObjectId) se trata igual que "no encontrado". */
   async getById(id) {
-    return this.events.find((event) => event.id === id) || null;
+    try {
+      return await this.model.findById(id).lean();
+    } catch (error) {
+      if (error.name === 'CastError') return null;
+      throw error;
+    }
   }
 
   async create(data) {
-    const event = { id: String(this.events.length + 1), ...data };
-    this.events.push(event);
-    return event;
+    const created = await this.model.create(data);
+    return created.toObject();
   }
 
   async update(id, changes) {
-    const index = this.events.findIndex((event) => event.id === id);
-    if (index === -1) return null;
-
-    this.events[index] = { ...this.events[index], ...changes };
-    return this.events[index];
-  }
-
-  async remove(id) {
-    const index = this.events.findIndex((event) => event.id === id);
-    if (index === -1) return null;
-
-    const [removed] = this.events.splice(index, 1);
-    return removed;
+    try {
+      return await this.model.findByIdAndUpdate(id, changes, { new: true, runValidators: true }).lean();
+    } catch (error) {
+      if (error.name === 'CastError') return null;
+      throw error;
+    }
   }
 }
 

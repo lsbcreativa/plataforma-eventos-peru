@@ -1,90 +1,36 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventsService } from '../../src/services/events.service.js';
-import { EventsRepository } from '../../src/repositories/events.repository.js';
-import { EventsDao } from '../../src/dao/events.dao.js';
 
-describe('EventsService con las capas reales', () => {
-  let service;
-  let dao;
+const eventoValido = {
+  title: 'Congreso Tech',
+  description: 'Un congreso de tecnologia',
+  category: 'tecnologia',
+  location: 'Centro de convenciones',
+  date: '2099-11-20',
+  capacity: 50
+};
 
-  beforeEach(async () => {
-    dao = new EventsDao();
-    service = new EventsService(new EventsRepository(dao));
-
-    await dao.create({ title: 'Congreso Tech', city: 'Lima', category: 'tecnologia' });
-    await dao.create({ title: 'Mistura', city: 'Lima', category: 'gastronomia' });
-    await dao.create({ title: 'Inti Raymi', city: 'Cusco', category: 'cultura' });
-  });
-
-  it('devuelve todos los eventos cuando no hay query', async () => {
-    assert.equal((await service.getEvents()).length, 3);
-  });
-
-  it('filtra por ciudad', async () => {
-    const resultado = await service.getEvents({ city: 'Lima' });
-
-    assert.equal(resultado.length, 2);
-    assert.ok(resultado.every((evento) => evento.city === 'Lima'));
-  });
-
-  it('filtra por categoria', async () => {
-    const resultado = await service.getEvents({ category: 'cultura' });
-
-    assert.equal(resultado.length, 1);
-    assert.equal(resultado[0].title, 'Inti Raymi');
-  });
-
-  it('combina ciudad y categoria', async () => {
-    const resultado = await service.getEvents({ city: 'Lima', category: 'gastronomia' });
-
-    assert.equal(resultado.length, 1);
-    assert.equal(resultado[0].title, 'Mistura');
-  });
-
-  it('devuelve lista vacia si ningun evento coincide', async () => {
-    assert.deepEqual(await service.getEvents({ city: 'Trujillo' }), []);
-  });
-});
-
-describe('EventsService con un repositorio simulado', () => {
-  it('ignora los parametros de query que no son filtros validos', async () => {
-    let filtroRecibido;
-    const repositorioFalso = {
-      getEvents: async (filter) => {
-        filtroRecibido = filter;
-        return [];
-      }
-    };
-    const service = new EventsService(repositorioFalso);
-
-    await service.getEvents({ city: 'Lima', limit: '10', hackeo: 'x' });
-
-    assert.deepEqual(filtroRecibido, { city: 'Lima' });
-  });
-
-  it('delega la busqueda por id en el repositorio', async () => {
-    let idRecibido;
-    const repositorioFalso = {
-      getEventById: async (id) => {
-        idRecibido = id;
-        return null;
-      }
-    };
-    const service = new EventsService(repositorioFalso);
-
-    await service.getEventById('42');
-
-    assert.equal(idRecibido, '42');
-  });
-});
-
-/** Repositorio en memoria que imita el contrato real, para probar create/update aislado. */
+/** Repositorio en memoria que imita el contrato real, para probar la logica aislada. */
 const crearRepositorioFalso = (eventosIniciales = []) => {
-  const eventos = [...eventosIniciales];
+  const eventos = eventosIniciales.map((evento, index) => ({ id: String(index + 1), ...evento }));
+
+  const aplicaFiltro = (evento, filter) =>
+    Object.entries(filter).every(([key, value]) => {
+      if (key === 'date' && value && typeof value === 'object') {
+        const fecha = new Date(evento.date).getTime();
+        if (value.$gte && fecha < new Date(value.$gte).getTime()) return false;
+        if (value.$lte && fecha > new Date(value.$lte).getTime()) return false;
+        return true;
+      }
+      return evento[key] === value;
+    });
 
   return {
     eventos,
+    findEvents: async (filter = {}, { skip = 0, limit = 10 } = {}) =>
+      eventos.filter((evento) => aplicaFiltro(evento, filter)).slice(skip, skip + limit),
+    countEvents: async (filter = {}) => eventos.filter((evento) => aplicaFiltro(evento, filter)).length,
     createEvent: async (data) => {
       const creado = { id: String(eventos.length + 1), ...data };
       eventos.push(creado);
@@ -96,38 +42,83 @@ const crearRepositorioFalso = (eventosIniciales = []) => {
       if (index === -1) return null;
       eventos[index] = { ...eventos[index], ...changes };
       return eventos[index];
-    },
-    deleteEvent: async (id) => {
-      const index = eventos.findIndex((evento) => evento.id === id);
-      if (index === -1) return null;
-      const [eliminado] = eventos.splice(index, 1);
-      return eliminado;
     }
   };
 };
 
-describe('EventsService.createEvent', () => {
+describe('EventsService.getEvents', () => {
   let service;
 
-  const eventoValido = {
-    title: 'Congreso Tech',
-    description: 'Un congreso de tecnologia',
-    venue: 'Centro de convenciones',
-    date: '2026-11-20',
-    capacity: 50
-  };
+  beforeEach(() => {
+    service = new EventsService(
+      crearRepositorioFalso([
+        { title: 'A', category: 'tecnologia', location: 'Lima', status: 'published', date: '2099-01-10' },
+        { title: 'B', category: 'cultura', location: 'Cusco', status: 'draft', date: '2099-02-10' },
+        { title: 'C', category: 'tecnologia', location: 'Lima', status: 'published', date: '2099-03-10' }
+      ])
+    );
+  });
+
+  it('devuelve data, page, limit, total y totalPages', async () => {
+    const resultado = await service.getEvents();
+
+    assert.equal(resultado.data.length, 3);
+    assert.equal(resultado.page, 1);
+    assert.equal(resultado.limit, 10);
+    assert.equal(resultado.total, 3);
+    assert.equal(resultado.totalPages, 1);
+  });
+
+  it('filtra por status', async () => {
+    const resultado = await service.getEvents({ status: 'published' });
+
+    assert.equal(resultado.total, 2);
+    assert.ok(resultado.data.every((evento) => evento.status === 'published'));
+  });
+
+  it('filtra por category y location combinados', async () => {
+    const resultado = await service.getEvents({ category: 'tecnologia', location: 'Lima' });
+
+    assert.equal(resultado.total, 2);
+  });
+
+  it('pagina los resultados', async () => {
+    const pagina1 = await service.getEvents({ limit: 2, page: 1 });
+    const pagina2 = await service.getEvents({ limit: 2, page: 2 });
+
+    assert.equal(pagina1.data.length, 2);
+    assert.equal(pagina2.data.length, 1);
+    assert.equal(pagina1.totalPages, 2);
+  });
+
+  it('devuelve totalPages en 0 cuando no hay resultados', async () => {
+    const resultado = await service.getEvents({ category: 'inexistente' });
+
+    assert.deepEqual(resultado.data, []);
+    assert.equal(resultado.totalPages, 0);
+  });
+
+  it('ignora parametros de query que no son filtros validos', async () => {
+    const resultado = await service.getEvents({ hackeo: 'x' });
+
+    assert.equal(resultado.total, 3);
+  });
+});
+
+describe('EventsService.createEvent', () => {
+  let service;
 
   beforeEach(() => {
     service = new EventsService(crearRepositorioFalso());
   });
 
-  it('crea el evento asignando el organizer recibido', async () => {
+  it('crea el evento asignando el organizer recibido y status draft por defecto del modelo', async () => {
     const evento = await service.createEvent(eventoValido, 'organizer-1');
 
     assert.equal(evento.organizer, 'organizer-1');
     assert.equal(evento.title, 'Congreso Tech');
-    assert.equal(evento.status, 'publicado');
-    assert.equal(evento.availableSeats, 50);
+    assert.equal(evento.price, 0);
+    assert.equal(evento.status, undefined); // el status por defecto lo asigna el modelo de Mongoose, no el service
   });
 
   it('rechaza con 400 cuando faltan campos obligatorios', async () => {
@@ -151,6 +142,16 @@ describe('EventsService.createEvent', () => {
     );
   });
 
+  it('rechaza con 400 un precio negativo', async () => {
+    await assert.rejects(
+      () => service.createEvent({ ...eventoValido, price: -10 }, 'organizer-1'),
+      (error) => {
+        assert.equal(error.status, 400);
+        return true;
+      }
+    );
+  });
+
   it('rechaza con 400 una fecha invalida', async () => {
     await assert.rejects(
       () => service.createEvent({ ...eventoValido, date: 'no-es-una-fecha' }, 'organizer-1'),
@@ -160,6 +161,23 @@ describe('EventsService.createEvent', () => {
       }
     );
   });
+
+  it('rechaza con 400 una fecha pasada', async () => {
+    await assert.rejects(
+      () => service.createEvent({ ...eventoValido, date: '2000-01-01' }, 'organizer-1'),
+      (error) => {
+        assert.equal(error.status, 400);
+        assert.match(error.message, /pasado/);
+        return true;
+      }
+    );
+  });
+
+  it('ignora el organizer que venga en el body: usa el recibido por parametro', async () => {
+    const evento = await service.createEvent({ ...eventoValido, organizer: 'inyectado' }, 'organizer-1');
+
+    assert.equal(evento.organizer, 'organizer-1');
+  });
 });
 
 describe('EventsService.updateEvent', () => {
@@ -167,7 +185,9 @@ describe('EventsService.updateEvent', () => {
   let repositorio;
 
   beforeEach(() => {
-    repositorio = crearRepositorioFalso([{ id: '1', title: 'Original', organizer: 'organizer-1' }]);
+    repositorio = crearRepositorioFalso([
+      { title: 'Original', organizer: 'organizer-1', status: 'draft', capacity: 10, price: 0 }
+    ]);
     service = new EventsService(repositorio);
   });
 
@@ -209,52 +229,109 @@ describe('EventsService.updateEvent', () => {
     );
   });
 
-  it('no permite reasignar el organizer del evento', async () => {
-    const actualizado = await service.updateEvent('1', { organizer: 'otro-id' }, {
-      id: 'organizer-1',
-      role: 'organizer'
-    });
+  it('no permite reasignar el organizer, el id ni el status del evento', async () => {
+    const actualizado = await service.updateEvent(
+      '1',
+      { organizer: 'otro-id', id: '999', status: 'cancelled' },
+      { id: 'organizer-1', role: 'organizer' }
+    );
 
     assert.equal(actualizado.organizer, 'organizer-1');
+    assert.equal(actualizado.id, '1');
+    assert.equal(actualizado.status, 'draft');
+  });
+
+  it('rechaza con 400 una capacidad invalida', async () => {
+    await assert.rejects(
+      () => service.updateEvent('1', { capacity: -1 }, { id: 'organizer-1', role: 'organizer' }),
+      (error) => {
+        assert.equal(error.status, 400);
+        return true;
+      }
+    );
+  });
+
+  it('rechaza con 409 si el evento ya esta cancelado', async () => {
+    repositorio.eventos[0].status = 'cancelled';
+
+    await assert.rejects(
+      () => service.updateEvent('1', { title: 'Intento' }, { id: 'organizer-1', role: 'organizer' }),
+      (error) => {
+        assert.equal(error.status, 409);
+        return true;
+      }
+    );
   });
 });
 
-describe('EventsService.deleteEvent', () => {
+describe('EventsService.changeStatus', () => {
   let service;
   let repositorio;
 
   beforeEach(() => {
-    repositorio = crearRepositorioFalso([{ id: '1', title: 'Original', organizer: 'organizer-1' }]);
+    repositorio = crearRepositorioFalso([{ title: 'Evento', organizer: 'organizer-1', status: 'draft' }]);
     service = new EventsService(repositorio);
   });
 
-  it('permite al dueño eliminar su propio evento', async () => {
-    const eliminado = await service.deleteEvent('1', { id: 'organizer-1', role: 'organizer' });
+  it('permite al dueño publicar su propio evento en borrador', async () => {
+    const actualizado = await service.changeStatus('1', 'published', { id: 'organizer-1', role: 'organizer' });
 
-    assert.equal(eliminado.id, '1');
-    assert.equal(await repositorio.getEventById('1'), null);
+    assert.equal(actualizado.status, 'published');
   });
 
   it('rechaza con 403 si el organizer no es el dueño', async () => {
     await assert.rejects(
-      () => service.deleteEvent('1', { id: 'organizer-2', role: 'organizer' }),
+      () => service.changeStatus('1', 'published', { id: 'organizer-2', role: 'organizer' }),
       (error) => {
         assert.equal(error.status, 403);
         return true;
       }
     );
-    assert.ok(await repositorio.getEventById('1'));
   });
 
-  it('permite al admin eliminar cualquier evento', async () => {
-    const eliminado = await service.deleteEvent('1', { id: 'admin-1', role: 'admin' });
+  it('permite al admin cambiar el status de cualquier evento', async () => {
+    const actualizado = await service.changeStatus('1', 'cancelled', { id: 'admin-1', role: 'admin' });
 
-    assert.equal(eliminado.id, '1');
+    assert.equal(actualizado.status, 'cancelled');
+  });
+
+  it('rechaza con 400 un status que no existe', async () => {
+    await assert.rejects(
+      () => service.changeStatus('1', 'archivado', { id: 'organizer-1', role: 'organizer' }),
+      (error) => {
+        assert.equal(error.status, 400);
+        return true;
+      }
+    );
+  });
+
+  it('rechaza con 400 publicar un evento finalizado', async () => {
+    repositorio.eventos[0].status = 'finished';
+
+    await assert.rejects(
+      () => service.changeStatus('1', 'published', { id: 'organizer-1', role: 'organizer' }),
+      (error) => {
+        assert.equal(error.status, 400);
+        return true;
+      }
+    );
+  });
+
+  it('rechaza con 409 cambiar el status de un evento ya cancelado', async () => {
+    repositorio.eventos[0].status = 'cancelled';
+
+    await assert.rejects(
+      () => service.changeStatus('1', 'finished', { id: 'organizer-1', role: 'organizer' }),
+      (error) => {
+        assert.equal(error.status, 409);
+        return true;
+      }
+    );
   });
 
   it('rechaza con 404 si el evento no existe', async () => {
     await assert.rejects(
-      () => service.deleteEvent('999', { id: 'organizer-1', role: 'organizer' }),
+      () => service.changeStatus('999', 'published', { id: 'organizer-1', role: 'organizer' }),
       (error) => {
         assert.equal(error.status, 404);
         return true;

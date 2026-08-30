@@ -4,8 +4,8 @@ import { AppError } from '../utils/appError.js';
 
 export const getEvents = async (req, res, next) => {
   try {
-    const events = await eventsService.getEvents(req.query);
-    successResponse(res, events);
+    const result = await eventsService.getEvents(req.query);
+    successResponse(res, result);
   } catch (error) {
     next(error);
   }
@@ -13,7 +13,7 @@ export const getEvents = async (req, res, next) => {
 
 export const getEventById = async (req, res, next) => {
   try {
-    const event = await eventsService.getEventById(req.params.eid);
+    const event = await eventsService.getEventById(req.params.id);
     if (!event) {
       throw new AppError('Evento no encontrado', 404);
     }
@@ -34,16 +34,16 @@ export const createEvent = async (req, res, next) => {
 
 export const updateEvent = async (req, res, next) => {
   try {
-    const event = await eventsService.updateEvent(req.params.eid, req.body, req.user);
+    const event = await eventsService.updateEvent(req.params.id, req.body, req.user);
     successResponse(res, event);
   } catch (error) {
     next(error);
   }
 };
 
-export const deleteEvent = async (req, res, next) => {
+export const changeEventStatus = async (req, res, next) => {
   try {
-    const event = await eventsService.deleteEvent(req.params.eid, req.user);
+    const event = await eventsService.changeStatus(req.params.id, req.body.status, req.user);
     successResponse(res, event);
   } catch (error) {
     next(error);
