@@ -61,4 +61,27 @@ describe('EventsDao', () => {
   it('devuelve null al actualizar un id inexistente', async () => {
     assert.equal(await dao.update('999', { title: 'x' }), null);
   });
+
+  it('elimina un evento existente y lo devuelve', async () => {
+    const creado = await dao.create({ title: 'A borrar', city: 'Lima' });
+
+    const eliminado = await dao.remove(creado.id);
+
+    assert.equal(eliminado.title, 'A borrar');
+    assert.equal(await dao.getById(creado.id), null);
+    assert.equal((await dao.getAll()).length, 0);
+  });
+
+  it('devuelve null al eliminar un id inexistente', async () => {
+    assert.equal(await dao.remove('999'), null);
+  });
+
+  it('eliminar un evento no afecta a los demas', async () => {
+    const uno = await dao.create({ title: 'Uno' });
+    const dos = await dao.create({ title: 'Dos' });
+
+    await dao.remove(uno.id);
+
+    assert.deepEqual(await dao.getAll(), [dos]);
+  });
 });

@@ -61,19 +61,36 @@ export class EventsService {
    * un admin puede tocar cualquiera. El id y el organizer del evento no se pueden reasignar.
    */
   async updateEvent(id, changes = {}, user) {
+    const event = await this._getOwnedEvent(id, user);
+
+    const allowedChanges = { ...changes };
+    IMMUTABLE_EVENT_FIELDS.forEach((field) => delete allowedChanges[field]);
+
+    return this.repository.updateEvent(id, allowedChanges);
+  }
+
+  /**
+   * Elimina un evento existente con la misma regla de propiedad que updateEvent:
+   * un organizer solo puede borrar sus propios eventos; un admin, cualquiera.
+   */
+  async deleteEvent(id, user) {
+    const event = await this._getOwnedEvent(id, user);
+
+    return this.repository.deleteEvent(event.id);
+  }
+
+  /** Busca el evento y valida que el usuario sea su dueño (o admin). Lanza 404 o 403 si no. */
+  async _getOwnedEvent(id, user) {
     const event = await this.repository.getEventById(id);
     if (!event) {
       throw new AppError('Evento no encontrado', 404);
     }
 
     if (user.role !== 'admin' && String(event.organizer) !== String(user.id)) {
-      throw new AppError('No podés modificar un evento que no te pertenece', 403);
+      throw new AppError('No podés modificar ni eliminar un evento que no te pertenece', 403);
     }
 
-    const allowedChanges = { ...changes };
-    IMMUTABLE_EVENT_FIELDS.forEach((field) => delete allowedChanges[field]);
-
-    return this.repository.updateEvent(id, allowedChanges);
+    return event;
   }
 }
 

@@ -31,6 +31,14 @@ export class EventsDao {
     this.events[index] = { ...this.events[index], ...changes };
     return this.events[index];
   }
+
+  async remove(id) {
+    const index = this.events.findIndex((event) => event.id === id);
+    if (index === -1) return null;
+
+    const [removed] = this.events.splice(index, 1);
+    return removed;
+  }
 }
 
 export const eventsDao = new EventsDao();

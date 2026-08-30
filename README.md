@@ -114,7 +114,7 @@ Las pruebas se dividen en dos grupos:
 
 Las pruebas unitarias aprovechan la inyección de dependencias de la arquitectura: los servicios reciben repositorios simulados, de modo que la lógica se valida sin tocar la fuente de datos real.
 
-Las pruebas de integración que tocan MongoDB (`register.test.js`, `auth.test.js`, `authorization.test.js`) usan `mongodb-memory-server`, que levanta un Mongo real y efímero: no dependen del `MONGO_URL` del `.env` ni de tener una base externa corriendo. Van dentro de `devDependencies`, junto con `supertest`, así que `npm install` en cualquier entorno aislado (CI, contenedor limpio, otra máquina) deja todo listo para correr `npm test` sin instalar nada más. Unico requisito: la primera corrida necesita salida a internet para que `mongodb-memory-server` descargue el binario de MongoDB una vez; las siguientes corridas reusan esa cache local.
+Las pruebas de integración que tocan MongoDB (`register.test.js`, `auth.test.js`, `authorization.test.js`) usan `mongodb-memory-server`, que levanta un Mongo real y efímero: no dependen del `MONGO_URL` del `.env` ni de tener una base externa corriendo. Están declaradas en `devDependencies` junto con `supertest` y fijadas en `package-lock.json`, así que un `npm ci` (instalación limpia a partir del lockfile, como la que corre cualquier entorno de CI o de corrección) deja todo listo para `npm test` sin instalar nada más — verificado corriendo `rm -rf node_modules && npm ci && npm test` antes de esta entrega. Unico requisito: la primera corrida necesita salida a internet para que `mongodb-memory-server` descargue el binario de MongoDB una vez; las siguientes corridas reusan esa cache local.
 
 ## Estructura de carpetas
 
@@ -241,6 +241,7 @@ Todas las rutas cuelgan del prefijo `/api`.
 | GET | `/api/events/:eid` | Detalle de un evento | No |
 | POST | `/api/events` | Crea un evento nuevo | Cookie + rol `organizer` o `admin` |
 | PATCH | `/api/events/:eid` | Modifica un evento (propio si es `organizer`, cualquiera si es `admin`) | Cookie + rol `organizer` o `admin` |
+| DELETE | `/api/events/:eid` | Elimina un evento (propio si es `organizer`, cualquiera si es `admin`) | Cookie + rol `organizer` o `admin` |
 | POST | `/api/sessions/register` | Registra un usuario nuevo | No |
 | POST | `/api/sessions/login` | Valida credenciales y entrega la cookie de sesión | No |
 | GET | `/api/sessions/current` | Devuelve el usuario autenticado | Cookie `currentUser` |
@@ -502,6 +503,8 @@ Estar autenticado no alcanza para hacer cualquier cosa: cada acción se valida a
 | Crear eventos | ❌ | ✅ | ✅ |
 | Modificar/cancelar eventos propios | ❌ | ✅ | ✅ |
 | Modificar cualquier evento | ❌ | ❌ | ✅ |
+| Eliminar eventos propios | ❌ | ✅ | ✅ |
+| Eliminar cualquier evento | ❌ | ❌ | ✅ |
 | Ver todos los usuarios | ❌ | ❌ | ✅ |
 
 "Consultar eventos publicados" no exige rol porque `GET /api/events` y `GET /api/events/:eid` son públicas: la matriz no restringe esa acción a ningún rol, así que tampoco se le exige sesión iniciada.
@@ -539,19 +542,20 @@ Ninguno de los dos casos responde nunca con 500: son errores esperables del nego
 | `GET /api/sessions/current` | Sesión válida, cualquier rol | 401 si no hay sesión |
 | `POST /api/events` | Sesión válida + rol `organizer` o `admin` | 401 sin sesión, 403 con rol `user` |
 | `PATCH /api/events/:eid` | Sesión válida + rol `organizer` o `admin` + ser dueño del evento (o ser `admin`) | 401 sin sesión, 403 sin rol o sin ser dueño |
+| `DELETE /api/events/:eid` | Sesión válida + rol `organizer` o `admin` + ser dueño del evento (o ser `admin`) | 401 sin sesión, 403 sin rol o sin ser dueño |
 | `GET /api/users` | Sesión válida + rol `admin` | 401 sin sesión, 403 con rol `user` u `organizer` |
 
 ### Propiedad de recursos
 
-Que un `organizer` tenga el rol correcto no significa que pueda tocar cualquier evento: `authorize('organizer', 'admin')` solo verifica el rol, no de quién es el evento. Esa segunda validación (¿este evento es tuyo?) necesita el registro puntual, así que vive en `EventsService.updateEvent` (`src/services/events.service.js`), justo después de buscarlo:
+Que un `organizer` tenga el rol correcto no significa que pueda tocar cualquier evento: `authorize('organizer', 'admin')` solo verifica el rol, no de quién es el evento. Esa segunda validación (¿este evento es tuyo?) necesita el registro puntual, así que vive en `EventsService` (`src/services/events.service.js`), en un helper privado (`_getOwnedEvent`) compartido por `updateEvent` y `deleteEvent`, justo después de buscar el evento:
 
 ```js
 if (user.role !== 'admin' && String(event.organizer) !== String(user.id)) {
-  throw new AppError('No podés modificar un evento que no te pertenece', 403);
+  throw new AppError('No podés modificar ni eliminar un evento que no te pertenece', 403);
 }
 ```
 
-Un `admin` se salta esta comparación y puede modificar cualquier evento. El `id` y el `organizer` de un evento tampoco se pueden reasignar desde el body de un `PATCH`, sin importar el rol de quien lo pida.
+Un `admin` se salta esta comparación y puede modificar o eliminar cualquier evento. El `id` y el `organizer` de un evento tampoco se pueden reasignar desde el body de un `PATCH`, sin importar el rol de quien lo pida.
 
 ### Cómo probarlo
 
@@ -574,9 +578,12 @@ curl -X POST http://localhost:8080/api/events -H "Content-Type: application/json
 
 # 200 solo si quien pide es admin
 curl -b cookies.txt http://localhost:8080/api/users
+
+# DELETE sigue la misma regla que PATCH: 200 si sos el organizer dueño o admin, 403 si no
+curl -b cookies.txt -X DELETE http://localhost:8080/api/events/1
 ```
 
-`test/integration/authorization.test.js` automatiza exactamente estos casos (`user` vs. `organizer` vs. `admin` en `POST /api/events`, la ruta administrativa `GET /api/users`, sin cookie, y un `organizer` intentando modificar el evento de otro), sembrando los usuarios con cada rol directo en MongoDB (igual que se haría a mano).
+`test/integration/authorization.test.js` automatiza exactamente estos casos (`user` vs. `organizer` vs. `admin` en `POST /api/events`, la ruta administrativa `GET /api/users`, sin cookie, y un `organizer` intentando modificar o eliminar el evento de otro), sembrando los usuarios con cada rol directo en MongoDB (igual que se haría a mano).
 
 ## Seguridad de las contraseñas
 

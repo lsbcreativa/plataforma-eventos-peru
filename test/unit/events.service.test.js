@@ -96,6 +96,12 @@ const crearRepositorioFalso = (eventosIniciales = []) => {
       if (index === -1) return null;
       eventos[index] = { ...eventos[index], ...changes };
       return eventos[index];
+    },
+    deleteEvent: async (id) => {
+      const index = eventos.findIndex((evento) => evento.id === id);
+      if (index === -1) return null;
+      const [eliminado] = eventos.splice(index, 1);
+      return eliminado;
     }
   };
 };
@@ -210,5 +216,49 @@ describe('EventsService.updateEvent', () => {
     });
 
     assert.equal(actualizado.organizer, 'organizer-1');
+  });
+});
+
+describe('EventsService.deleteEvent', () => {
+  let service;
+  let repositorio;
+
+  beforeEach(() => {
+    repositorio = crearRepositorioFalso([{ id: '1', title: 'Original', organizer: 'organizer-1' }]);
+    service = new EventsService(repositorio);
+  });
+
+  it('permite al dueño eliminar su propio evento', async () => {
+    const eliminado = await service.deleteEvent('1', { id: 'organizer-1', role: 'organizer' });
+
+    assert.equal(eliminado.id, '1');
+    assert.equal(await repositorio.getEventById('1'), null);
+  });
+
+  it('rechaza con 403 si el organizer no es el dueño', async () => {
+    await assert.rejects(
+      () => service.deleteEvent('1', { id: 'organizer-2', role: 'organizer' }),
+      (error) => {
+        assert.equal(error.status, 403);
+        return true;
+      }
+    );
+    assert.ok(await repositorio.getEventById('1'));
+  });
+
+  it('permite al admin eliminar cualquier evento', async () => {
+    const eliminado = await service.deleteEvent('1', { id: 'admin-1', role: 'admin' });
+
+    assert.equal(eliminado.id, '1');
+  });
+
+  it('rechaza con 404 si el evento no existe', async () => {
+    await assert.rejects(
+      () => service.deleteEvent('999', { id: 'organizer-1', role: 'organizer' }),
+      (error) => {
+        assert.equal(error.status, 404);
+        return true;
+      }
+    );
   });
 });

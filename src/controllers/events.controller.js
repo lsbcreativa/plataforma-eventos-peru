@@ -40,3 +40,12 @@ export const updateEvent = async (req, res, next) => {
     next(error);
   }
 };
+
+export const deleteEvent = async (req, res, next) => {
+  try {
+    const event = await eventsService.deleteEvent(req.params.eid, req.user);
+    successResponse(res, event);
+  } catch (error) {
+    next(error);
+  }
+};

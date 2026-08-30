@@ -20,6 +20,10 @@ export class EventsRepository {
   async updateEvent(id, changes) {
     return this.dao.update(id, changes);
   }
+
+  async deleteEvent(id) {
+    return this.dao.remove(id);
+  }
 }
 
 export const eventsRepository = new EventsRepository(eventsDao);

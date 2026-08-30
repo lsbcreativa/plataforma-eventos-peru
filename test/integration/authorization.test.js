@@ -156,6 +156,74 @@ describe('Propiedad de recursos: PATCH /api/events/:eid', () => {
   });
 });
 
+describe('Propiedad de recursos: DELETE /api/events/:eid', () => {
+  it('con rol user responde 403', async () => {
+    await crearUsuario('organizer', 'dueno4@mail.com');
+    await crearUsuario('user', 'user2@mail.com');
+
+    const dueno = await loginComo('dueno4@mail.com');
+    const creado = await dueno.post('/api/events').send(nuevoEvento);
+
+    const user = await loginComo('user2@mail.com');
+    const response = await user.delete(`/api/events/${creado.body.payload.id}`);
+
+    assert.equal(response.status, 403);
+  });
+
+  it('sin cookie responde 401', async () => {
+    await crearUsuario('organizer', 'dueno5@mail.com');
+    const dueno = await loginComo('dueno5@mail.com');
+    const creado = await dueno.post('/api/events').send(nuevoEvento);
+
+    const response = await request(app).delete(`/api/events/${creado.body.payload.id}`);
+
+    assert.equal(response.status, 401);
+  });
+
+  it('el organizer dueño puede eliminar su propio evento', async () => {
+    await crearUsuario('organizer', 'dueno6@mail.com');
+    const agent = await loginComo('dueno6@mail.com');
+    const creado = await agent.post('/api/events').send(nuevoEvento);
+
+    const response = await agent.delete(`/api/events/${creado.body.payload.id}`);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.payload.id, creado.body.payload.id);
+
+    const trasBorrar = await request(app).get(`/api/events/${creado.body.payload.id}`);
+    assert.equal(trasBorrar.status, 404);
+  });
+
+  it('un organizer no puede eliminar el evento de otro organizer', async () => {
+    await crearUsuario('organizer', 'dueno7@mail.com');
+    await crearUsuario('organizer', 'intruso2@mail.com');
+
+    const dueno = await loginComo('dueno7@mail.com');
+    const creado = await dueno.post('/api/events').send(nuevoEvento);
+
+    const intruso = await loginComo('intruso2@mail.com');
+    const response = await intruso.delete(`/api/events/${creado.body.payload.id}`);
+
+    assert.equal(response.status, 403);
+
+    const sigueExistiendo = await request(app).get(`/api/events/${creado.body.payload.id}`);
+    assert.equal(sigueExistiendo.status, 200);
+  });
+
+  it('un admin puede eliminar el evento de cualquier organizer', async () => {
+    await crearUsuario('organizer', 'dueno8@mail.com');
+    await crearUsuario('admin', 'admin4@mail.com');
+
+    const dueno = await loginComo('dueno8@mail.com');
+    const creado = await dueno.post('/api/events').send(nuevoEvento);
+
+    const admin = await loginComo('admin4@mail.com');
+    const response = await admin.delete(`/api/events/${creado.body.payload.id}`);
+
+    assert.equal(response.status, 200);
+  });
+});
+
 describe('Ruta administrativa: GET /api/users', () => {
   it('sin cookie responde 401', async () => {
     const response = await request(app).get('/api/users');
