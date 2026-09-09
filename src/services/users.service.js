@@ -1,5 +1,5 @@
 import { usersRepository } from '../repositories/users.repository.js';
-import { toPublicUser } from '../utils/user.mapper.js';
+import { toUserDTO } from '../dto/user.dto.js';
 
 export class UsersService {
   constructor(repository) {
@@ -9,7 +9,7 @@ export class UsersService {
   /** Lista todos los usuarios en su forma publica, sin exponer el password. */
   async getUsers() {
     const users = await this.repository.getUsers();
-    return users.map(toPublicUser);
+    return users.map(toUserDTO);
   }
 }
 

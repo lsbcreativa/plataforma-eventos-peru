@@ -1,5 +1,6 @@
 import { successResponse } from '../utils/response.util.js';
-import { toPublicUser } from '../utils/user.mapper.js';
+import { toUserDTO } from '../dto/user.dto.js';
+import { toCurrentUserDTO } from '../dto/session.dto.js';
 import { generateToken } from '../utils/jwt.js';
 import { COOKIE_NAME } from '../config/passport.config.js';
 import { config } from '../config/env.config.js';
@@ -13,7 +14,7 @@ const cookieOptions = {
 };
 
 export const register = (req, res) => {
-  successResponse(res, toPublicUser(req.user), 201);
+  successResponse(res, toUserDTO(req.user), 201);
 };
 
 export const login = (req, res) => {
@@ -25,8 +26,7 @@ export const login = (req, res) => {
 };
 
 export const current = (req, res) => {
-  const { id, email, role } = req.user;
-  successResponse(res, { id, email, role });
+  successResponse(res, toCurrentUserDTO(req.user));
 };
 
 export const logout = (req, res) => {

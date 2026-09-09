@@ -6,15 +6,15 @@ export class UsersRepository {
   }
 
   async getUsers() {
-    return this.dao.getAll();
+    return this.dao.find({});
   }
 
   async getUserByEmail(email) {
-    return this.dao.getByEmail(email);
+    return this.dao.findOne({ email });
   }
 
   async getUserById(id) {
-    return this.dao.getById(id);
+    return this.dao.findById(id);
   }
 
   async createUser(data) {

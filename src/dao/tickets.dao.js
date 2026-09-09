@@ -1,42 +1,29 @@
 import { Ticket } from '../models/Ticket.js';
 
 /**
- * DAO de tickets sobre MongoDB.
- * Recibe el modelo por constructor para poder sustituirlo en las pruebas.
+ * DAO de tickets sobre MongoDB. Metodos genericos de acceso a datos: no conoce
+ * conceptos de dominio (que es un ticket "activo", que pasa al cancelar, etc.);
+ * esas decisiones viven en tickets.repository.js. Recibe el modelo por constructor
+ * para poder sustituirlo en las pruebas.
  */
 export class TicketsDao {
   constructor(model = Ticket) {
     this.model = model;
   }
 
-  async create(data) {
-    const created = await this.model.create(data);
-    return created.toObject();
+  async find(filter = {}, { sort = {}, skip = 0, limit, populate } = {}) {
+    let query = this.model.find(filter).sort(sort).skip(skip);
+    if (limit) query = query.limit(limit);
+    if (populate) query = query.populate(populate);
+    return query.lean();
   }
 
-  async findActiveByUserAndEvent(userId, eventId) {
-    return this.model.findOne({ user: userId, event: eventId, status: { $ne: 'cancelled' } }).lean();
-  }
-
-  /** Todos los tickets activos (no cancelados) de un evento: son los que ocupan cupo. */
-  async findActiveByEvent(eventId) {
-    return this.model.find({ event: eventId, status: { $ne: 'cancelled' } }).lean();
-  }
-
-  async findByEvent(eventId) {
-    return this.model.find({ event: eventId }).sort({ createdAt: -1 }).lean();
-  }
-
-  async findByUser(userId) {
-    return this.model
-      .find({ user: userId })
-      .sort({ createdAt: -1 })
-      .populate('event', 'title date location -_id')
-      .lean();
+  async findOne(filter) {
+    return this.model.findOne(filter).lean();
   }
 
   /** Un id con formato invalido (no ObjectId) se trata igual que "no encontrado". */
-  async getById(id) {
+  async findById(id) {
     try {
       return await this.model.findById(id).lean();
     } catch (error) {
@@ -45,11 +32,18 @@ export class TicketsDao {
     }
   }
 
-  async cancel(id) {
+  async count(filter = {}) {
+    return this.model.countDocuments(filter);
+  }
+
+  async create(data) {
+    const created = await this.model.create(data);
+    return created.toObject();
+  }
+
+  async updateById(id, changes) {
     try {
-      return await this.model
-        .findByIdAndUpdate(id, { status: 'cancelled', cancelledAt: new Date() }, { new: true })
-        .lean();
+      return await this.model.findByIdAndUpdate(id, changes, { new: true, runValidators: true }).lean();
     } catch (error) {
       if (error.name === 'CastError') return null;
       throw error;

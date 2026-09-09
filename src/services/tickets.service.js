@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { ticketsRepository } from '../repositories/tickets.repository.js';
 import { eventsRepository } from '../repositories/events.repository.js';
 import { AppError } from '../utils/appError.js';
-import { toPublicTicket } from '../utils/ticket.mapper.js';
+import { toTicketDTO } from '../dto/ticket.dto.js';
 import { sendMail } from '../utils/mailer.js';
 import { logger } from '../utils/logger.js';
 
@@ -46,12 +46,12 @@ export class TicketsService {
       .sendMail(this._buildConfirmationEmail(user, event, created))
       .catch((error) => logger.warn(`No se pudo enviar el email de confirmación: ${error.message}`));
 
-    return toPublicTicket(created);
+    return toTicketDTO(created);
   }
 
   async getMyTickets(userId) {
     const tickets = await this.repository.findByUser(userId);
-    return tickets.map(toPublicTicket);
+    return tickets.map(toTicketDTO);
   }
 
   /** Lista las inscripciones de un evento: solo el organizer dueño o un admin. */
@@ -66,7 +66,7 @@ export class TicketsService {
     }
 
     const tickets = await this.repository.findByEvent(eventId);
-    return tickets.map(toPublicTicket);
+    return tickets.map(toTicketDTO);
   }
 
   /** Cancela un ticket: cambia el status, nunca borra el documento. Libera el cupo. */
@@ -84,7 +84,7 @@ export class TicketsService {
       throw new AppError('El ticket ya está cancelado', 409);
     }
 
-    return toPublicTicket(await this.repository.cancelTicket(ticketId));
+    return toTicketDTO(await this.repository.cancelTicket(ticketId));
   }
 
   _assertEventIsOpenForEnrollment(event) {
@@ -108,8 +108,7 @@ export class TicketsService {
   }
 
   async _assertCapacityAvailable(event, eventId, quantity) {
-    const activeTickets = await this.repository.findActiveByEvent(eventId);
-    const occupied = activeTickets.reduce((sum, ticket) => sum + ticket.quantity, 0);
+    const occupied = await this.repository.countActiveTickets(eventId);
     const available = event.capacity - occupied;
 
     if (available < quantity) {

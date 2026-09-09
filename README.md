@@ -24,6 +24,7 @@ La plataforma permitirá:
 | Pre-entrega 5 | Autorización por roles: middleware de roles, matriz de permisos, propiedad de recursos | Completada |
 | Pre-entrega 6 | Entidad `Event` en MongoDB: CRUD completo, reglas de negocio, filtros, paginación y ordenamiento | Completada |
 | Pre-entrega 7 | Entidad `Ticket`: inscripciones, control de cupos, cancelaciones y email de confirmación con Nodemailer | Completada |
+| Pre-entrega 8 | Arquitectura formal en capas: DAO genérico, Repository de dominio, Services y DTOs explícitos | Completada |
 | Próximas | A definir | Pendiente |
 
 ## Tecnologías
@@ -155,22 +156,30 @@ plataforma-eventos-peru/
 │   │   ├── users.service.js
 │   │   └── tickets.service.js          # reglas de inscripcion, cupos, duplicados, cancelacion y email
 │   ├── repositories/
-│   │   ├── events.repository.js
-│   │   ├── users.repository.js
-│   │   └── tickets.repository.js
+│   │   ├── events.repository.js        # metodos de dominio (findEvents, updateEvent...) sobre events.dao.js
+│   │   ├── users.repository.js         # metodos de dominio (getUserByEmail...) sobre users.dao.js
+│   │   └── tickets.repository.js       # metodos de dominio (countActiveTickets, cancelTicket...) sobre tickets.dao.js
 │   ├── dao/
-│   │   ├── events.dao.js               # persiste en MongoDB con Mongoose
-│   │   ├── users.dao.js
-│   │   └── tickets.dao.js
+│   │   ├── events.dao.js               # unico archivo que importa Event; metodos genericos (find/findOne/findById/create/updateById/count)
+│   │   ├── users.dao.js                # idem con User
+│   │   └── tickets.dao.js              # idem con Ticket
 │   ├── models/
 │   │   ├── User.js                     # campo role: user (default) | organizer | admin
 │   │   ├── Event.js                    # campo status: draft (default) | published | cancelled | finished
 │   │   └── Ticket.js                   # status: confirmed (default) | pending | cancelled; user/event son referencias
+│   ├── constants/
+│   │   ├── event.constants.js          # EVENT_STATUSES: lo importan el modelo (enum) y el service (validacion)
+│   │   └── ticket.constants.js         # TICKET_STATUSES, misma idea
+│   ├── dto/
+│   │   ├── user.dto.js                 # toUserDTO: id/first_name/last_name/email/role, nunca password
+│   │   ├── session.dto.js              # toCurrentUserDTO: id/email/role a partir del payload del JWT
+│   │   ├── event.dto.js                # toEventDTO: allowlist explicita de campos de evento
+│   │   └── ticket.dto.js               # toTicketDTO: allowlist + filtra tambien el evento/usuario si vienen poblados
 │   ├── middlewares/
 │   │   ├── passportAuth.middleware.js  # autenticacion: exporta requireAuth (401 sin sesion)
 │   │   ├── authorize.middleware.js     # autorizacion: authorize(...roles) (403 sin permiso)
 │   │   ├── notFound.middleware.js
-│   │   └── errorHandler.middleware.js
+│   │   └── errorHandler.middleware.js  # middleware centralizado de errores (400/401/403/404/409/500)
 │   └── utils/
 │       ├── logger.js
 │       ├── response.util.js
@@ -178,9 +187,6 @@ plataforma-eventos-peru/
 │       ├── jwt.js                      # firma y verificación de JWT
 │       ├── validators.js               # validaciones y normalización de email
 │       ├── mailer.js                   # Nodemailer: envia o, sin MAIL_HOST, lo omite y avisa por log
-│       ├── user.mapper.js              # arma el usuario público (sin password)
-│       ├── event.mapper.js             # arma el evento público (id en vez de _id)
-│       ├── ticket.mapper.js            # arma el ticket público (id en vez de _id)
 │       └── appError.js                 # error con código HTTP asociado
 ├── test/
 │   ├── integration/                    # pruebas sobre los endpoints HTTP
@@ -194,6 +200,7 @@ plataforma-eventos-peru/
 │   └── unit/                           # pruebas de la lógica por capa
 │       ├── events.service.test.js      # filtros/paginacion, validaciones de negocio y transiciones de status
 │       ├── tickets.service.test.js     # reglas de cupos/duplicados con repositorio y mailer simulados
+│       ├── dto.test.js                 # las 4 DTO nunca exponen password, ni con evento/usuario poblado
 │       ├── authorize.middleware.test.js
 │       ├── passport.config.test.js     # estrategias register/login con repositorio simulado
 │       ├── hash.test.js
@@ -250,6 +257,88 @@ POST /api/events
                  └─ events.dao   persiste con Mongoose
                     └─ Event.js  modelo de la coleccion
 ```
+
+## Arquitectura en capas
+
+Desde la Pre-entrega 8 la separación entre capas es formal, no solo una convención: cada capa tiene una responsabilidad única y una regla de qué puede importar. El objetivo no fue agregar funcionalidad nueva sino ordenar la que ya existía — **ninguna ruta cambió su contrato externo** (ver [Comportamiento externo](#comportamiento-externo) más abajo).
+
+```
+router  ->  controller  ->  service  ->  repository  ->  dao  ->  modelo de Mongoose
+                                              service  ->  dto  (antes de responder)
+```
+
+| Capa | Responsabilidad | Puede importar | No puede importar |
+|---|---|---|---|
+| **Router** (`src/routes/`) | Define la URL y el método HTTP, y arma la cadena de middlewares (`requireAuth`, `authorize`) | controllers, middlewares | modelos, repositories, dao |
+| **Controller** (`src/controllers/`) | Extrae datos de `req.body`/`req.params`/`req.query`, llama al service, devuelve la respuesta con `successResponse`. Nunca calcula nada | services, utils de respuesta | modelos, repositories, dao |
+| **Service** (`src/services/`) | Toda la lógica de negocio: validaciones, reglas de cupos y estados, permisos sobre recursos propios, envío de email. Es la única capa que decide qué es un error 400/403/404/409 | repositories, `dto/`, `constants/`, `utils/` | modelos (`src/models/`), `dao/` |
+| **Repository** (`src/repositories/`) | Traduce conceptos de dominio (`getUserByEmail`, `countActiveTickets`, `cancelTicket`) en llamadas al DAO genérico. Decide qué filtro, qué `populate`, qué cambios aplica una acción de negocio | su propio DAO | modelos, otros DAO |
+| **DAO** (`src/dao/`) | Acceso a datos genérico sobre un modelo de Mongoose: `find`, `findOne`, `findById`, `create`, `updateById`, `count`. No sabe qué es un evento "publicado" ni qué significa "cancelar" | su propio modelo de Mongoose | cualquier otra capa |
+| **DTO** (`src/dto/`) | Convierte un documento (o resultado de negocio) en el objeto público que viaja al cliente. Allowlist explícita: arma el objeto campo por campo, nunca por spread — un campo nuevo en el modelo no se filtra a la respuesta sin decidirlo acá | nada del resto de la app (son funciones puras) | — |
+
+`src/dao/` son los **únicos** archivos de `src/` que importan algo de `src/models/` (verificado con un grep sobre todo el árbol antes de esta entrega). Los enums de estado (`EVENT_STATUSES`, `TICKET_STATUSES`) tampoco viven en los modelos: están en `src/constants/`, y tanto el modelo (para el `enum` del schema) como el service (para validar contra ese mismo enum) los importan de ahí — así el service nunca necesita tocar `src/models/`.
+
+### DAO genérico vs. Repository de dominio
+
+Antes de esta entrega, `tickets.dao.js` tenía metodos como `findActiveByEvent` o `cancel` que ya sabían qué es un ticket "activo" (`status !== 'cancelled'`) y qué campos cambian al cancelar. Eso mezclaba acceso a datos con reglas de negocio en la capa equivocada. Ahora:
+
+```js
+// src/dao/tickets.dao.js — generico, no sabe que es "activo"
+async find(filter = {}, { sort, skip, limit, populate } = {}) { /* ... */ }
+
+// src/repositories/tickets.repository.js — acá vive la definicion de dominio
+const ACTIVE_FILTER = { status: { $ne: 'cancelled' } };
+
+async countActiveTickets(eventId) {
+  const activeTickets = await this.dao.find({ event: eventId, ...ACTIVE_FILTER });
+  return activeTickets.reduce((sum, ticket) => sum + ticket.quantity, 0);
+}
+
+async cancelTicket(id) {
+  return this.dao.updateById(id, { status: 'cancelled', cancelledAt: new Date() });
+}
+```
+
+`TicketsService` ya no sabe cómo se calculan los cupos ocupados ni qué campos cambian al cancelar: solo llama `this.repository.countActiveTickets(eventId)` o `this.repository.cancelTicket(id)`. Si mañana cambia la definición de "ticket activo" (por ejemplo, si se agrega un estado `expired`), el cambio es de una sola línea en el repository — el DAO, el service y los controllers no se enteran.
+
+### DTO: por qué allowlist y no spread
+
+`toEventDTO`/`toTicketDTO` antes armaban la respuesta con spread (`{ ...event }`, excluyendo solo `_id`/`__v`): funcionaba porque hoy ningún documento de evento o ticket tiene un campo sensible, pero no estaba blindado si mañana alguien agregara un `populate` más amplio en el DAO. Ahora cada DTO lista explícitamente los campos que expone:
+
+```js
+// src/dto/event.dto.js
+const EVENT_FIELDS = ['title', 'description', 'category', 'location', 'date', 'capacity', 'price', 'status', 'organizer', 'createdAt', 'updatedAt'];
+
+export const toEventDTO = (event) => {
+  if (!event) return null;
+  const dto = { id: String(event.id ?? event._id) };
+  EVENT_FIELDS.forEach((field) => {
+    if (event[field] !== undefined) dto[field] = event[field];
+  });
+  return dto;
+};
+```
+
+`toTicketDTO` va un paso más allá: si `event` o `user` vienen poblados (`.populate(...)`), no los reexporta tal cual — les aplica su propio filtro (`toEventDTO`-like para el evento, `toUserDTO` para el usuario). Así, aunque el `populate` del DAO cambiara mañana y trajera el usuario completo con su `password` hasheado, el DTO lo sigue filtrando antes de que llegue a la respuesta. `test/unit/dto.test.js` prueba exactamente ese caso: arma un ticket con `user` poblado incluyendo `password`, y verifica que `toTicketDTO` nunca lo expone.
+
+### Manejo de errores
+
+`errorHandler.middleware.js` es el único lugar que arma la respuesta de error; todo el resto de la app lanza un `AppError(mensaje, status)` y lo deja pasar con `next(error)`. Los status que usa la API, con un ejemplo real de cada uno:
+
+| Status | Cuándo | Ejemplo |
+|---|---|---|
+| `400` | Datos inválidos (falta un campo, formato incorrecto, regla de negocio sobre el valor recibido) | `capacity` ≤ 0, `quantity` no numérica, fecha de evento pasada |
+| `401` | No autenticado: no hay cookie, o el token es inválido/expiró | Cualquier ruta protegida sin `currentUser` |
+| `403` | Autenticado pero sin permiso para esa acción, o no ser dueño del recurso | `user` intentando crear un evento; `organizer` sobre un evento ajeno |
+| `404` | El recurso no existe (incluye un `id` con formato inválido, que el DAO trata igual que "no encontrado") | `GET /api/events/:id` inexistente |
+| `409` | Conflicto con el estado actual del recurso | Evento ya cancelado, sin cupos, inscripción duplicada |
+| `500` | Error interno no esperado | Cualquier excepción no controlada; el mensaje real queda en el log, la respuesta es genérica |
+
+Ningún error de negocio responde `500`: `errorHandler.middleware.js` solo usa ese status para lo que de verdad es una falla del servidor (y ahí sí oculta el detalle, mostrando un mensaje genérico al cliente mientras loguea el original).
+
+### Comportamiento externo
+
+Todas las rutas de sesiones, eventos y tickets responden exactamente igual que antes de esta entrega — mismos status codes, mismos mensajes, misma forma de las respuestas. Lo único que cambió es la organización interna del código. La suite completa (`npm test`, 195 pruebas) y un recorrido manual completo (registro → login → crear evento → publicar → inscribirse → `my-tickets` → cancelar) contra una base real se corrieron antes de cerrar esta entrega para confirmarlo.
 
 ## Rutas disponibles
 
@@ -835,11 +924,11 @@ Ninguna inscripción se hace `pending` en esta entrega: como no hay un paso de p
 
 ### La regla de cupos
 
-Cupos ocupados = suma de `quantity` de todos los tickets del evento **con `status` distinto de `cancelled`**. Un ticket cancelado no cuenta: por eso cancelar libera el cupo automáticamente, sin ninguna otra acción. Nada se resta ni se recalcula a mano — la próxima inscripción simplemente vuelve a sumar contra los tickets activos que queden.
+Cupos ocupados = suma de `quantity` de todos los tickets del evento **con `status` distinto de `cancelled`**. Un ticket cancelado no cuenta: por eso cancelar libera el cupo automáticamente, sin ninguna otra acción. Nada se resta ni se recalcula a mano — la próxima inscripción simplemente vuelve a sumar contra los tickets activos que queden. El cálculo en sí vive en el repository (`countActiveTickets`), no en el service — ver [Arquitectura en capas](#arquitectura-en-capas):
 
 ```js
-const activeTickets = await this.repository.findActiveByEvent(eventId);       // status != 'cancelled'
-const occupied = activeTickets.reduce((sum, ticket) => sum + ticket.quantity, 0);
+// src/services/tickets.service.js
+const occupied = await this.repository.countActiveTickets(eventId);
 const available = event.capacity - occupied;
 ```
 
@@ -971,7 +1060,7 @@ curl -b cookies.txt -X PATCH http://localhost:8080/api/tickets/<tid>/cancel
 Tres capas independientes evitan que la contraseña se filtre:
 
 1. **Nunca se guarda en texto plano.** La estrategia `register` la hashea con bcrypt (`utils/hash.js`, 10 rondas de salt) antes de pasarla al repositorio.
-2. **Nunca sale en una respuesta.** Todo usuario que viaja al cliente pasa por `utils/user.mapper.js`, que arma un objeto solo con `id`, `first_name`, `last_name`, `email` y `role`.
+2. **Nunca sale en una respuesta.** Todo usuario que viaja al cliente pasa por el DTO `src/dto/user.dto.js` (`toUserDTO`), que arma un objeto solo con `id`, `first_name`, `last_name`, `email` y `role` — ver [Arquitectura en capas](#arquitectura-en-capas).
 3. **Refuerzo en el modelo.** El esquema de Mongoose define un `toJSON` que elimina el campo `password`, por si algún documento se serializara directamente.
 
 La suite de tests verifica los tres puntos, incluida una consulta directa a la base para confirmar que lo almacenado es un hash y no el texto original.

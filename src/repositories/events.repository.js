@@ -14,7 +14,7 @@ export class EventsRepository {
   }
 
   async getEventById(id) {
-    return this.dao.getById(id);
+    return this.dao.findById(id);
   }
 
   async createEvent(data) {
@@ -22,7 +22,7 @@ export class EventsRepository {
   }
 
   async updateEvent(id, changes) {
-    return this.dao.update(id, changes);
+    return this.dao.updateById(id, changes);
   }
 }
 

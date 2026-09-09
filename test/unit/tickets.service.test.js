@@ -28,7 +28,10 @@ const crearRepositorioFalso = (ticketsIniciales = []) => {
     },
     findActiveByUserAndEvent: async (userId, eventId) =>
       tickets.find((t) => t.user === userId && t.event === eventId && t.status !== 'cancelled') || null,
-    findActiveByEvent: async (eventId) => tickets.filter((t) => t.event === eventId && t.status !== 'cancelled'),
+    countActiveTickets: async (eventId) =>
+      tickets
+        .filter((t) => t.event === eventId && t.status !== 'cancelled')
+        .reduce((sum, t) => sum + t.quantity, 0),
     findByEvent: async (eventId) => tickets.filter((t) => t.event === eventId),
     findByUser: async (userId) => tickets.filter((t) => t.user === userId),
     getTicketById: async (id) => tickets.find((t) => t.id === id) || null,

@@ -1,24 +1,29 @@
 import { Event } from '../models/Event.js';
 
 /**
- * DAO de eventos sobre MongoDB.
- * Recibe el modelo por constructor para poder sustituirlo en las pruebas.
+ * DAO de eventos sobre MongoDB. Metodos genericos de acceso a datos: no sabe que es
+ * un evento "publicado" ni ninguna otra regla de dominio, solo ejecuta el filtro que
+ * le pasan. Recibe el modelo por constructor para poder sustituirlo en las pruebas.
  */
 export class EventsDao {
   constructor(model = Event) {
     this.model = model;
   }
 
-  async find(filter, { skip = 0, limit = 10, sort = {} } = {}) {
+  async find(filter = {}, { skip = 0, limit = 10, sort = {} } = {}) {
     return this.model.find(filter).sort(sort).skip(skip).limit(limit).lean();
   }
 
-  async count(filter) {
+  async findOne(filter) {
+    return this.model.findOne(filter).lean();
+  }
+
+  async count(filter = {}) {
     return this.model.countDocuments(filter);
   }
 
   /** Un id con formato invalido (no ObjectId) se trata igual que "no encontrado". */
-  async getById(id) {
+  async findById(id) {
     try {
       return await this.model.findById(id).lean();
     } catch (error) {
@@ -32,7 +37,7 @@ export class EventsDao {
     return created.toObject();
   }
 
-  async update(id, changes) {
+  async updateById(id, changes) {
     try {
       return await this.model.findByIdAndUpdate(id, changes, { new: true, runValidators: true }).lean();
     } catch (error) {

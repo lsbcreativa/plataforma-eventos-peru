@@ -1,8 +1,8 @@
 import { eventsRepository } from '../repositories/events.repository.js';
 import { AppError } from '../utils/appError.js';
 import { findMissingFields } from '../utils/validators.js';
-import { toPublicEvent } from '../utils/event.mapper.js';
-import { EVENT_STATUSES } from '../models/Event.js';
+import { toEventDTO } from '../dto/event.dto.js';
+import { EVENT_STATUSES } from '../constants/event.constants.js';
 
 const REQUIRED_EVENT_FIELDS = ['title', 'description', 'category', 'date', 'location', 'capacity'];
 const FILTERABLE_FIELDS = ['status', 'category', 'location'];
@@ -49,7 +49,7 @@ export class EventsService {
     ]);
 
     return {
-      data: data.map(toPublicEvent),
+      data: data.map(toEventDTO),
       page,
       limit,
       total,
@@ -58,7 +58,12 @@ export class EventsService {
   }
 
   async getEventById(id) {
-    return toPublicEvent(await this.repository.getEventById(id));
+    const event = await this.repository.getEventById(id);
+    if (!event) {
+      throw new AppError('Evento no encontrado', 404);
+    }
+
+    return toEventDTO(event);
   }
 
   /** Crea un evento nuevo a nombre del organizador autenticado (organizer o admin). */
@@ -83,7 +88,7 @@ export class EventsService {
       organizer: organizerId
     });
 
-    return toPublicEvent(created);
+    return toEventDTO(created);
   }
 
   /**
@@ -110,7 +115,7 @@ export class EventsService {
       allowedChanges.date = this._validateDate(allowedChanges.date, { allowPast: true });
     }
 
-    return toPublicEvent(await this.repository.updateEvent(id, allowedChanges));
+    return toEventDTO(await this.repository.updateEvent(id, allowedChanges));
   }
 
   /**
@@ -131,7 +136,7 @@ export class EventsService {
       throw new AppError('No se puede publicar un evento finalizado o cancelado', 400);
     }
 
-    return toPublicEvent(await this.repository.updateEvent(id, { status }));
+    return toEventDTO(await this.repository.updateEvent(id, { status }));
   }
 
   /** Busca el evento y valida que el usuario sea su dueño (o admin). Lanza 404 o 403 si no. */

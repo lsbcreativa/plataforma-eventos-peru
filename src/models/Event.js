@@ -1,8 +1,7 @@
 import mongoose from 'mongoose';
+import { EVENT_STATUSES } from '../constants/event.constants.js';
 
 const eventCollection = 'events';
-
-export const EVENT_STATUSES = ['draft', 'published', 'cancelled', 'finished'];
 
 const eventSchema = new mongoose.Schema(
   {
