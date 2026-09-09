@@ -2,6 +2,30 @@
 
 API REST desarrollada con Node.js y Express como base arquitectónica del proyecto final de **Backend II (Coderhouse)**.
 
+## Índice
+
+- [Temática](#temática)
+- [Estado del proyecto](#estado-del-proyecto)
+- [Tecnologías](#tecnologías)
+- [Instalación](#instalación)
+- [Configuración de variables de entorno](#configuración-de-variables-de-entorno)
+- [Cómo ejecutar](#cómo-ejecutar)
+- [Usuarios de prueba](#usuarios-de-prueba)
+- [Tests](#tests)
+- [Estructura de carpetas](#estructura-de-carpetas)
+- [Arquitectura en capas](#arquitectura-en-capas)
+- [Rutas disponibles](#rutas-disponibles)
+- [Registro de usuarios](#registro-de-usuarios)
+- [Autenticación centralizada con Passport](#autenticación-centralizada-con-passport)
+- [Autenticación con JWT y cookies](#autenticación-con-jwt-y-cookies)
+- [Roles y autorización](#roles-y-autorización)
+- [Eventos](#eventos)
+- [Tickets e inscripciones](#tickets-e-inscripciones)
+- [Seguridad de las contraseñas](#seguridad-de-las-contraseñas)
+- [Flujo completo verificado](#flujo-completo-verificado)
+- [Evidencia de funcionamiento](#evidencia-de-funcionamiento)
+- [Alcance y posibles extensiones futuras](#alcance-y-posibles-extensiones-futuras)
+
 ## Temática
 
 **EventosPerú** es una plataforma de eventos e inscripciones enfocada en el mercado peruano: congresos de tecnología en Lima, ferias gastronómicas en Arequipa, festivales culturales en Cusco, entre otros.
@@ -25,7 +49,9 @@ La plataforma permitirá:
 | Pre-entrega 6 | Entidad `Event` en MongoDB: CRUD completo, reglas de negocio, filtros, paginación y ordenamiento | Completada |
 | Pre-entrega 7 | Entidad `Ticket`: inscripciones, control de cupos, cancelaciones y email de confirmación con Nodemailer | Completada |
 | Pre-entrega 8 | Arquitectura formal en capas: DAO genérico, Repository de dominio, Services y DTOs explícitos | Completada |
-| Próximas | A definir | Pendiente |
+| **Entrega final** | Integración completa: autenticación, roles, eventos, tickets/inscripciones, cupos, email y arquitectura en capas, todo verificado end-to-end | **Completada** |
+
+Este README documenta el estado final e integrado del proyecto. Las secciones de abajo no están separadas por pre-entrega: cada una describe cómo funciona esa parte de la API hoy, resultado de las ocho entregas anteriores.
 
 ## Tecnologías
 
@@ -103,6 +129,39 @@ npm start
 ```
 
 El servidor queda disponible en `http://localhost:8080` (o el puerto definido en `PORT`).
+
+## Usuarios de prueba
+
+Un usuario `user` se consigue con el registro público (`POST /api/sessions/register`, ver [Registro de usuarios](#registro-de-usuarios)) — ese endpoint siempre crea el rol `user`, a propósito: no existe ningún endpoint público para crear un `organizer` o un `admin` (ver [Roles y autorización](#roles-y-autorización) para el porqué). Para probar la API con los tres roles, hay que:
+
+1. Registrar un usuario normal para cada rol que se quiera probar:
+
+   ```bash
+   curl -X POST http://localhost:8080/api/sessions/register \
+     -H "Content-Type: application/json" \
+     -d '{"first_name":"Org","last_name":"Uno","email":"organizer@mail.com","password":"Secreta123"}'
+
+   curl -X POST http://localhost:8080/api/sessions/register \
+     -H "Content-Type: application/json" \
+     -d '{"first_name":"Admin","last_name":"Uno","email":"admin@mail.com","password":"Secreta123"}'
+   ```
+
+2. Asignarles el rol directo en MongoDB (con `mongosh`, MongoDB Compass, o el shell de Atlas):
+
+   ```bash
+   mongosh "$MONGO_URL" --eval "db.users.updateOne({email:'organizer@mail.com'}, {\$set:{role:'organizer'}})"
+   mongosh "$MONGO_URL" --eval "db.users.updateOne({email:'admin@mail.com'}, {\$set:{role:'admin'}})"
+   ```
+
+3. Loguearse normalmente con `POST /api/sessions/login` — el JWT sale con el rol que quedó guardado en la base, así que la cookie de sesión de ese usuario ya tiene los permisos de `organizer` o `admin`.
+
+| Rol | Cómo se consigue | Qué puede hacer |
+|---|---|---|
+| `user` | Registro público, es el rol por defecto | Consultar eventos, inscribirse, ver y cancelar sus propios tickets |
+| `organizer` | Registro público + asignar el rol a mano en la base | Todo lo de `user`, además de crear eventos y administrar (modificar, cambiar status, ver inscripciones de) los eventos que organiza |
+| `admin` | Registro público + asignar el rol a mano en la base | Todo lo de `organizer`, pero sobre **cualquier** evento (no solo los propios), más `GET /api/users` |
+
+`test/integration/authorization.test.js` y `test/integration/tickets.test.js` siembran usuarios de cada rol de esta misma forma (directo en la base, sin pasar por un endpoint) para probar los tres roles automáticamente.
 
 ## Tests
 
@@ -1096,6 +1155,25 @@ La suite de tests verifica los tres puntos, incluida una consulta directa a la b
 
 > Todas las respuestas siguen el mismo contrato: `{ "status": "success", "payload": ... }` cuando la operación sale bien, y `{ "status": "error", "message": "..." }` cuando falla.
 
+## Flujo completo verificado
+
+Antes de esta entrega se corrió el flujo completo contra una base real (MongoDB Atlas, no `mongodb-memory-server`), en este orden, para confirmar que la API integrada funciona de punta a punta y no solo pieza por pieza:
+
+| # | Caso | Resultado |
+|---|---|---|
+| 1 | Registro → login → `GET /current` → logout → `GET /current` | `201` → `200` → `200` con `{id,email,role}` → `200` → **`401`** |
+| 2 | `user` intenta `POST /api/events` | **`403`** `No tenés permisos para realizar esta acción` |
+| 3 | `organizer` crea evento (cupo 1) → publica → `user` se inscribe | `201` → `200` → `201` con `status: "confirmed"` y `reservationCode` |
+| 4 | El mismo `user` intenta inscribirse de nuevo al mismo evento | **`409`** `Ya tenés una inscripción activa para este evento` |
+| 5 | Otro `user` intenta inscribirse al mismo evento (sin cupo) | **`409`** `No hay cupos suficientes: quedan 0 de 1` |
+| 6 | El primer `user` cancela su ticket → el segundo `user` vuelve a intentar | `200` (`status: "cancelled"`) → **`201`** (cupo liberado) |
+| 7 | Un `organizer` que no organiza ese evento intenta modificarlo (`PUT`) | **`403`** `No podés modificar un evento que no te pertenece` |
+| 8 | Un `admin` modifica el evento de otro organizador | **`200`**, cambio aplicado |
+| 9 | Se revisan las respuestas de `current`, del evento y del ticket | Ninguna de las tres incluye `password` |
+| 10 | `GET /api/events?status=published&page=2&limit=5` | **`200`** con `{ data, page: 2, limit: 5, total, totalPages }` |
+
+Sobre el envío de email (paso 3, "email recibido" en el enunciado): la suite de tests y este flujo verifican que `TicketsService` invoca correctamente a Nodemailer con el destinatario y el contenido esperados (`test/unit/tickets.service.test.js`), y que una inscripción nunca falla si el email no se pudo enviar. La entrega de un email real a una casilla concreta depende de configurar credenciales SMTP reales en `MAIL_*` (ver [Configuración de variables de entorno](#configuración-de-variables-de-entorno)) — sin esas credenciales, el servidor lo omite y lo avisa por log en vez de fallar la inscripción.
+
 ## Evidencia de funcionamiento
 
 Capturas del servidor respondiendo en local sobre `http://localhost:8080`, con la base alojada en MongoDB Atlas.
@@ -1132,12 +1210,14 @@ Colección `users` en MongoDB Atlas. El campo `password` guarda un hash de bcryp
 
 > Esta captura es de antes de la Pre-entrega 6: en ese momento `GET /api/events` devolvía `payload: []` directamente. Desde esta entrega devuelve `payload: { data, page, limit, total, totalPages }` (ver [Eventos](#eventos)); el array vacío pasó a ser `data: []` dentro de ese objeto.
 
-## Próximos pasos
+## Alcance y posibles extensiones futuras
 
-- Estrategias de Passport para providers externos (Google, GitHub, etc.), apoyadas en la estructura de `passport.config.js`.
-- Flujo de pago/aprobación que use el status `pending` de `Ticket`, hoy reservado sin uso.
-- Notificaciones adicionales (por ejemplo, al publicar o cancelar un evento, o al cancelar una inscripción).
-- Manejo transaccional del control de cupos ante inscripciones concurrentes.
+Esta es la entrega final del curso: la API integra autenticación con Passport y JWT, roles y autorización, el CRUD de eventos con reglas de negocio, inscripciones con control de cupos, y notificaciones por email, todo sobre una arquitectura formal en capas (ver [Arquitectura en capas](#arquitectura-en-capas)). Quedan afuera del alcance de este proyecto, a propósito, algunas cosas que tendría sentido sumar en una futura iteración:
+
+- Estrategias de Passport para providers externos (Google, GitHub, etc.), sobre la misma estructura de `passport.config.js` — ya preparada para eso sin tocar `app.js`.
+- Un flujo de pago/aprobación que use el status `pending` de `Ticket`, hoy reservado en el modelo pero sin ningún endpoint que lo dispare.
+- Notificaciones adicionales (por ejemplo, al publicar o cancelar un evento, o al cancelar una inscripción) sobre la misma base de `src/utils/mailer.js`.
+- Manejo transaccional del control de cupos ante inscripciones concurrentes (hoy la validación es secuencial: existe un índice único parcial que evita duplicados de un mismo usuario, pero no una transacción de Mongo que blinde el cupo en sí ante dos inscripciones simultáneas de usuarios distintos).
 
 ## Autor
 
