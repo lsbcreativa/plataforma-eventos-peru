@@ -184,7 +184,16 @@ Las pruebas se dividen en dos grupos:
 
 Las pruebas unitarias aprovechan la inyección de dependencias de la arquitectura: los servicios reciben repositorios simulados, de modo que la lógica se valida sin tocar la fuente de datos real.
 
-Las pruebas de integración que tocan MongoDB (`register.test.js`, `auth.test.js`, `authorization.test.js`) usan `mongodb-memory-server`, que levanta un Mongo real y efímero: no dependen del `MONGO_URL` del `.env` ni de tener una base externa corriendo. Están declaradas en `devDependencies` junto con `supertest` y fijadas en `package-lock.json`, así que un `npm ci` (instalación limpia a partir del lockfile, como la que corre cualquier entorno de CI o de corrección) deja todo listo para `npm test` sin instalar nada más — verificado corriendo `rm -rf node_modules && npm ci && npm test` antes de esta entrega. Unico requisito: la primera corrida necesita salida a internet para que `mongodb-memory-server` descargue el binario de MongoDB una vez; las siguientes corridas reusan esa cache local.
+Las pruebas de integración que tocan MongoDB (`register.test.js`, `auth.test.js`, `authorization.test.js`, `events.test.js`, `tickets.test.js`) usan `mongodb-memory-server`, que levanta un Mongo real y efímero: no dependen del `MONGO_URL` del `.env` ni de tener una base externa corriendo.
+
+`mongodb-memory-server` y `supertest` están en `dependencies` (no en `devDependencies`) a propósito: así quedan instalados sin importar qué comando use el entorno que corre las pruebas — `npm install`, `npm ci`, o incluso `npm ci --omit=dev` (que normalmente salta las dependencias de desarrollo). Verificado explícitamente:
+
+```bash
+rm -rf node_modules && npm ci --omit=dev
+node -e "require.resolve('mongodb-memory-server'); require.resolve('supertest')"   # no tira "Cannot find module"
+```
+
+Único requisito real: la primera corrida necesita salida a internet para que `mongodb-memory-server` descargue el binario de MongoDB una vez; las siguientes corridas reusan esa cache local.
 
 ## Estructura de carpetas
 

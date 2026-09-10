@@ -28,14 +28,12 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.3",
+    "mongodb-memory-server": "^11.2.0",
     "mongoose": "^8.9.5",
     "nodemailer": "^9.1.1",
     "passport": "^0.7.0",
     "passport-custom": "^1.2.1",
-    "passport-jwt": "^4.0.1"
-  },
-  "devDependencies": {
-    "mongodb-memory-server": "^11.2.0",
+    "passport-jwt": "^4.0.1",
     "supertest": "^7.2.2"
   }
 }
