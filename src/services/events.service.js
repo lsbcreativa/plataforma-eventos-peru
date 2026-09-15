@@ -147,7 +147,7 @@ export class EventsService {
     }
 
     if (user.role !== 'admin' && String(event.organizer) !== String(user.id)) {
-      throw new AppError('No podés modificar un evento que no te pertenece', 403);
+      throw new AppError('No puedes modificar un evento que no te pertenece', 403);
     }
 
     return event;

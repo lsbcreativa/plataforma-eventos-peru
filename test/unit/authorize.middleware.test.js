@@ -23,7 +23,7 @@ describe('authorize', () => {
     });
 
     assert.equal(error.status, 403);
-    assert.equal(error.message, 'No tenés permisos para realizar esta acción');
+    assert.equal(error.message, 'No tienes permisos para realizar esta acción');
   });
 
   it('rechaza con 403 si no hay usuario en la request', () => {

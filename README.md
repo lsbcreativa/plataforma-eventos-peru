@@ -698,7 +698,7 @@ Autenticación y autorización son responsabilidades separadas, en archivos dist
 | Middleware | Archivo | Qué valida | Si falla |
 |---|---|---|---|
 | Autenticación | `src/middlewares/passportAuth.middleware.js` (`requireAuth`) | Que exista una sesión válida: ejecuta la estrategia `current` de Passport, que lee y verifica el JWT de la cookie `currentUser` | **401** `No autenticado` |
-| Autorización | `src/middlewares/authorize.middleware.js` (`authorize(...roles)`) | Que `req.user.role` esté entre los roles permitidos para esa ruta | **403** `No tenés permisos para realizar esta acción` |
+| Autorización | `src/middlewares/authorize.middleware.js` (`authorize(...roles)`) | Que `req.user.role` esté entre los roles permitidos para esa ruta | **403** `No tienes permisos para realizar esta acción` |
 
 `authorize` siempre se monta después de `requireAuth` en la ruta, porque necesita `req.user` ya poblado:
 
@@ -712,8 +712,8 @@ Ningún rol queda hardcodeado dentro de un controller o de la lógica de negocio
 
 Los dos códigos existen para distinguir dos preguntas distintas, y la API nunca los usa indistintamente:
 
-- **401 (No autenticado):** "no sé quién sos". No hay cookie, el token es inválido o expiró. Lo devuelve `requireAuth`, antes de llegar a mirar ningún rol.
-- **403 (Sin permiso):** "ya sé quién sos, pero no podés hacer esto". Hay una sesión válida, pero el rol no alcanza para esa acción (`authorize`) o el usuario no es dueño del recurso que intenta modificar (validación de propiedad, más abajo).
+- **401 (No autenticado):** "no sé quién eres". No hay cookie, el token es inválido o expiró. Lo devuelve `requireAuth`, antes de llegar a mirar ningún rol.
+- **403 (Sin permiso):** "ya sé quién eres, pero no puedes hacer esto". Hay una sesión válida, pero el rol no alcanza para esa acción (`authorize`) o el usuario no es dueño del recurso que intenta modificar (validación de propiedad, más abajo).
 
 Ninguno de los dos casos responde nunca con 500: son errores esperables del negocio, no fallas del servidor, y se manejan igual que el resto de los `AppError` de la app.
 
@@ -733,7 +733,7 @@ Que un `organizer` tenga el rol correcto no significa que pueda tocar cualquier 
 
 ```js
 if (user.role !== 'admin' && String(event.organizer) !== String(user.id)) {
-  throw new AppError('No podés modificar un evento que no te pertenece', 403);
+  throw new AppError('No puedes modificar un evento que no te pertenece', 403);
 }
 ```
 
@@ -844,7 +844,7 @@ Todo evento nuevo arranca en `draft`: para que aparezca como disponible hay que 
 **Response 403** — rol `user`
 
 ```json
-{ "status": "error", "message": "No tenés permisos para realizar esta acción" }
+{ "status": "error", "message": "No tienes permisos para realizar esta acción" }
 ```
 
 **Response 400** — fecha pasada, `capacity <= 0`, `price < 0` o campos obligatorios faltantes
@@ -907,7 +907,7 @@ Requiere ser el `organizer` dueño del evento, o `admin`. Acepta cualquier subco
 **Response 403** — el `organizer` no es dueño del evento:
 
 ```json
-{ "status": "error", "message": "No podés modificar un evento que no te pertenece" }
+{ "status": "error", "message": "No puedes modificar un evento que no te pertenece" }
 ```
 
 **Response 409** — el evento ya está `cancelled`:
@@ -1171,12 +1171,12 @@ Antes de esta entrega se corrió el flujo completo contra una base real (MongoDB
 | # | Caso | Resultado |
 |---|---|---|
 | 1 | Registro → login → `GET /current` → logout → `GET /current` | `201` → `200` → `200` con `{id,email,role}` → `200` → **`401`** |
-| 2 | `user` intenta `POST /api/events` | **`403`** `No tenés permisos para realizar esta acción` |
+| 2 | `user` intenta `POST /api/events` | **`403`** `No tienes permisos para realizar esta acción` |
 | 3 | `organizer` crea evento (cupo 1) → publica → `user` se inscribe | `201` → `200` → `201` con `status: "confirmed"` y `reservationCode` |
-| 4 | El mismo `user` intenta inscribirse de nuevo al mismo evento | **`409`** `Ya tenés una inscripción activa para este evento` |
+| 4 | El mismo `user` intenta inscribirse de nuevo al mismo evento | **`409`** `Ya tienes una inscripción activa para este evento` |
 | 5 | Otro `user` intenta inscribirse al mismo evento (sin cupo) | **`409`** `No hay cupos suficientes: quedan 0 de 1` |
 | 6 | El primer `user` cancela su ticket → el segundo `user` vuelve a intentar | `200` (`status: "cancelled"`) → **`201`** (cupo liberado) |
-| 7 | Un `organizer` que no organiza ese evento intenta modificarlo (`PUT`) | **`403`** `No podés modificar un evento que no te pertenece` |
+| 7 | Un `organizer` que no organiza ese evento intenta modificarlo (`PUT`) | **`403`** `No puedes modificar un evento que no te pertenece` |
 | 8 | Un `admin` modifica el evento de otro organizador | **`200`**, cambio aplicado |
 | 9 | Se revisan las respuestas de `current`, del evento y del ticket | Ninguna de las tres incluye `password` |
 | 10 | `GET /api/events?status=published&page=2&limit=5` | **`200`** con `{ data, page: 2, limit: 5, total, totalPages }` |

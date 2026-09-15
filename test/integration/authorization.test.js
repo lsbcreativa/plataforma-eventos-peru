@@ -70,7 +70,7 @@ describe('Autorizacion por roles: POST /api/events', () => {
     assert.equal(response.status, 403);
     assert.deepEqual(response.body, {
       status: 'error',
-      message: 'No tenés permisos para realizar esta acción'
+      message: 'No tienes permisos para realizar esta acción'
     });
   });
 

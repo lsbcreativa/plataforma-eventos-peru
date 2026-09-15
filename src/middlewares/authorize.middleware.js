@@ -1,6 +1,6 @@
 import { AppError } from '../utils/appError.js';
 
-const FORBIDDEN_MESSAGE = 'No tenés permisos para realizar esta acción';
+const FORBIDDEN_MESSAGE = 'No tienes permisos para realizar esta acción';
 
 /**
  * Compara req.user.role contra los roles permitidos para la ruta.

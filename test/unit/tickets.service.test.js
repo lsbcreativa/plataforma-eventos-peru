@@ -159,7 +159,7 @@ describe('TicketsService.createTicket', () => {
       () => service.createTicket('event-1', {}, usuario),
       (error) => {
         assert.equal(error.status, 409);
-        assert.match(error.message, /ya tenés/i);
+        assert.match(error.message, /ya tienes/i);
         return true;
       }
     );

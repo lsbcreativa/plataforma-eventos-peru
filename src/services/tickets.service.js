@@ -35,7 +35,7 @@ export class TicketsService {
 
     const existing = await this.repository.findActiveByUserAndEvent(user.id, eventId);
     if (existing) {
-      throw new AppError('Ya tenés una inscripción activa para este evento', 409);
+      throw new AppError('Ya tienes una inscripción activa para este evento', 409);
     }
 
     await this._assertCapacityAvailable(event, eventId, quantity);
@@ -62,7 +62,7 @@ export class TicketsService {
     }
 
     if (user.role !== 'admin' && String(event.organizer) !== String(user.id)) {
-      throw new AppError('No tenés permisos para ver las inscripciones de este evento', 403);
+      throw new AppError('No tienes permisos para ver las inscripciones de este evento', 403);
     }
 
     const tickets = await this.repository.findByEvent(eventId);
@@ -77,7 +77,7 @@ export class TicketsService {
     }
 
     if (user.role !== 'admin' && String(ticket.user) !== String(user.id)) {
-      throw new AppError('No podés cancelar un ticket que no te pertenece', 403);
+      throw new AppError('No puedes cancelar un ticket que no te pertenece', 403);
     }
 
     if (ticket.status === 'cancelled') {
@@ -89,10 +89,10 @@ export class TicketsService {
 
   _assertEventIsOpenForEnrollment(event) {
     if (event.status === 'cancelled') {
-      throw new AppError('No podés inscribirte a un evento cancelado', 409);
+      throw new AppError('No puedes inscribirte a un evento cancelado', 409);
     }
     if (event.status === 'finished') {
-      throw new AppError('No podés inscribirte a un evento que ya finalizó', 409);
+      throw new AppError('No puedes inscribirte a un evento que ya finalizó', 409);
     }
     if (event.status !== 'published') {
       throw new AppError('El evento todavía no está publicado', 409);
@@ -128,7 +128,7 @@ export class TicketsService {
         if (error.code !== DUPLICATE_KEY_ERROR) throw error;
 
         if (error.keyPattern?.user) {
-          throw new AppError('Ya tenés una inscripción activa para este evento', 409);
+          throw new AppError('Ya tienes una inscripción activa para este evento', 409);
         }
         if (!error.keyPattern?.reservationCode || attempt === MAX_RESERVATION_CODE_ATTEMPTS) {
           throw error;
